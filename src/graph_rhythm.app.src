@@ -1,0 +1,13 @@
+{application, graph_rhythm,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  cowboy
+                 ]},
+  {mod, { graph_rhythm_app, []}},
+  {env, []}
+ ]}.
