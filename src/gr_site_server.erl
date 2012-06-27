@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, add_site/1, add_url/2, get_referrals/2,
+-export([start_link/1, add_site/1, add_url/2, 
          add_site_listener/2, remove_site_listener/2]).
 
 %% ------------------------------------------------------------------
@@ -44,11 +44,6 @@ add_url(Site, {Url, Ref}) ->
         gen_server:cast(Pid, {add_url, {Url, Ref}})
     end).
 
-get_referrals(Site, Url) ->
-    using_site(Site, fun(Pid) -> 
-            gen_server:call(Pid, {get, Url})
-    end).
-
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -60,8 +55,7 @@ get_referrals(Site, Url) ->
 init([{site, Site}]) ->
     register_site(Site, self()),
     % Load up the pinger
-    Self = self(),
-    spawn_link(fun() -> loop_ping(Self, 1000) end),
+    timer:send_interval(1000, {event, ping}),
     {ok, #state{site=Site}}.
 
 handle_call(_Request, _From, State) ->
@@ -75,10 +69,11 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 % Times up!  Send the list to the handlers
-handle_info(ping, #state{site=Site} = State) ->
+handle_info({event, ping}, #state{site=Site} = State) ->
     send_urls(State), 
     {noreply, #state{site=Site}};
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    io:format("Uncaught Info: ~p~n", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -90,11 +85,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-loop_ping(Pid, Timeout) ->
-    timer:sleep(Timeout),
-    Pid ! ping,
-    loop_ping(Pid, Timeout).
-
 send_urls(#state{site=Site, urls=Urls} ) ->
     spawn(fun() ->
         case get_listeners(Site) of
@@ -103,8 +93,9 @@ send_urls(#state{site=Site, urls=Urls} ) ->
                 ok;
             Members ->
                 SortedUrls = lists:sort(Urls),
+                LocalTime = erlang:localtime(),
                 lists:foreach(fun(Pid) ->
-                    Pid ! {urls, erlang:localtime(), SortedUrls}
+                    Pid ! {urls, LocalTime, SortedUrls}
                 end, Members)
         end
     end).

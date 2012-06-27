@@ -20,16 +20,24 @@
 %% ------------------------------------------------------------------
 
 start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%% ------------------------------------------------------------------
+%% gen_server Function Definitions
+%% ------------------------------------------------------------------
+
+init(Args) ->
     Dispatch = [
         %% {Host, list({Path, Handler, Opts})}
         {'_', [
+            {[<<"tick">>, host], gr_http_tick_handler, []},
             {[<<"static">>, '...'], cowboy_http_static, 
                 [{directory, <<"./priv/static">>},
-                 {mimetypes, [
-                    {<<".html">>, [<<"text/html">>]}
-                ]}
+                     {mimetypes, [
+                        {<<".html">>, [<<"text/html">>]}
+                     ]}
                 ]},
-            {'_', gr_http_handler, []}
+            {[<<"watch">>, host], gr_http_watch_handler, []}
         ]}
     ],
     %% Name, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts
@@ -37,13 +45,7 @@ start_link() ->
         cowboy_tcp_transport, [{port, 8080}],
         cowboy_http_protocol, [{dispatch, Dispatch}]
     ),
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Pid], []).
 
-%% ------------------------------------------------------------------
-%% gen_server Function Definitions
-%% ------------------------------------------------------------------
-
-init(Args) ->
     {ok, Args}.
 
 handle_call(_Request, _From, State) ->
