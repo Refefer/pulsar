@@ -10,6 +10,7 @@ handle(Req, State) ->
         {undefined, Req2} ->
             {ok, Req3} = cowboy_http_req:reply(404, [], [<<"">>]),
             {ok, Req3, State};
+
         {Site, Req2} ->
             case gr_site_server:add_site_listener(Site, self()) of
                 {error, _Reason} ->
@@ -18,11 +19,7 @@ handle(Req, State) ->
                 ok ->
                     Headers = [{'Content-Type', <<"text/event-stream">>}],
                     {ok, Req3} = cowboy_http_req:chunked_reply(200, Headers, Req2),
-                    handle_loop(Req3, {site, Site});
-                Other ->
-                    {ok, Req3} = cowboy_http_req:reply(501, [], [<<"Site not tracked">>], Req2),
-                    {ok, Req3, State}
-
+                    handle_loop(Req3, {site, Site})
             end
     end.
 
@@ -59,7 +56,7 @@ urls_to_binary([{{Url, Ref}, Count}|Rest], Acc) ->
 
 handle_loop(Req, State={site, Site}) ->
     receive
-        {urls, Time, Urls} ->
+        {gr_site_server, {urls, Time, Urls}} ->
             Event = [<<"data:">>, urls_to_binary(group_urls(Urls)), <<"\n\n">>],
             case cowboy_http_req:chunk(Event, Req) of
                 ok -> 
@@ -68,5 +65,9 @@ handle_loop(Req, State={site, Site}) ->
                     % We are done here!
                     gr_site_server:remove_site_listener(Site, self()),
                     {ok, Req, undefined}
-            end
+            end;
+
+        {gr_site_server, {terminate, Site}} ->
+            % Someone said to stop watching the site, so exit.
+            {ok, Req, finished}
     end.

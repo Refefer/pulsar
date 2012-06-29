@@ -7,7 +7,8 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/1, add_site/1, add_url/2, 
-         add_site_listener/2, remove_site_listener/2]).
+         add_site_listener/2, remove_site_listener/2,
+         list_sites/0, delete_site/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -33,6 +34,22 @@ add_site(Site) ->
             supervisor:start_child(gr_site_server_sup, [{site, Site}])
     end.
 
+delete_site(Site) ->
+    using_site(Site, fun(Pid) -> 
+        gen_server:cast(Pid, stop)
+    end).
+
+list_sites() ->
+    Sites = lists:filter(fun(Args) -> 
+        case Args of
+            {?MODULE, site, Site} ->
+                true;
+            Args ->
+                false
+        end
+    end, pg2:which_groups()),
+    lists:map(fun({_Module, _Site, Site}) -> Site end, Sites).
+
 add_site_listener(Site, Pid) ->
     register_listener(Site, Pid).
 
@@ -47,7 +64,7 @@ add_url(Site, {Url, Ref}) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
--record(state, {site, urls=[]}).
+-record(state, {site, urls=[], tref}).
 
 %-spec init({atom(), binary()}) -> {atom(), pid()}
 %      ; init({atom(), binary()}) -> {atom(), binary()}.
@@ -55,14 +72,17 @@ add_url(Site, {Url, Ref}) ->
 init([{site, Site}]) ->
     register_site(Site, self()),
     % Load up the pinger
-    timer:send_interval(1000, {event, ping}),
-    {ok, #state{site=Site}}.
+    {ok, TRef} = timer:send_interval(1000, {event, ping}),
+    {ok, #state{site=Site, tref=TRef}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({add_url, Url}, #state{urls=Urls} = State) ->
     {noreply, State#state{urls=[Url|Urls]}};
+
+handle_cast(stop, State) ->
+    {stop, normal, State};
 
 handle_cast(Msg, State) ->
     io:format("Received ~p~n", [Msg]),
@@ -72,11 +92,19 @@ handle_cast(Msg, State) ->
 handle_info({event, ping}, #state{site=Site} = State) ->
     send_urls(State), 
     {noreply, #state{site=Site}};
+
 handle_info(Info, State) ->
     io:format("Uncaught Info: ~p~n", [Info]),
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(Reason, #state{site=Site, tref=Tref}) ->
+    % Cleanup listeners
+    send_terminate_message(Site),
+    % Stop the timer
+    timer:cancel(Tref),
+    % Clean up groups.
+    pg2:delete({?MODULE, site, Site}),
+    pg2:delete({?MODULE, listener, Site}),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -85,6 +113,15 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+send_terminate_message(Site) ->
+    case get_listeners(Site) of
+        [] ->
+            ok;
+        Members ->
+            lists:foreach(fun(Pid) ->
+                Pid ! {?MODULE, {terminate, Site}} end, Members)
+    end.
+
 send_urls(#state{site=Site, urls=Urls} ) ->
     spawn(fun() ->
         case get_listeners(Site) of
@@ -95,7 +132,7 @@ send_urls(#state{site=Site, urls=Urls} ) ->
                 SortedUrls = lists:sort(Urls),
                 LocalTime = erlang:localtime(),
                 lists:foreach(fun(Pid) ->
-                    Pid ! {urls, LocalTime, SortedUrls}
+                    Pid ! {?MODULE, {urls, LocalTime, SortedUrls}}
                 end, Members)
         end
     end).
