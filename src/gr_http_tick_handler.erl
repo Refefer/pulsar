@@ -25,7 +25,8 @@ handle(Req, State) ->
         {error, not_defined} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"Site Not Watched">>, Req4);
         ok ->
-            {ok, FinalReq} = cowboy_http_req:reply(200, [], Req4)
+            Headers = [{'Content-Type', <<"text/plain">>}],
+            {ok, FinalReq} = cowboy_http_req:reply(200, Headers, Req4)
     end,
             
     {ok, FinalReq, State}.

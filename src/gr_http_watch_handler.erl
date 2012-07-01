@@ -26,15 +26,6 @@ handle(Req, State) ->
 terminate(_Req, _State) ->
     ok.
             
-group_urls(Urls) ->
-    group_urls(Urls, []).
-group_urls([], Acc) ->
-    Acc;
-group_urls([S1 | Rest], [{S1, Count} | Rest2]) ->
-    group_urls(Rest, [{S1, Count + 1} | Rest2]);
-group_urls([S1 | Rest], Acc) ->
-    group_urls(Rest, [{S1, 1} | Acc]).
-
 wrap(Item, Char) ->
     wrap(Item, Char, Char).
 wrap(Item, SChar, EChar) ->
@@ -54,10 +45,15 @@ urls_to_binary([{{Url, Ref}, Count}|Rest], Acc) ->
     S = bracket([quote(Url), ",", quote(Ref), ",", integer_to_list(Count)]),
     urls_to_binary(Rest, [S|Acc]).
 
+build_data(Urls) ->
+    [<<"data:">>, urls_to_binary(ets:match_object(Urls, '_')), <<"\n">>].
+
 handle_loop(Req, State={site, Site}) ->
     receive
         {gr_site_server, {urls, Time, Urls}} ->
-            Event = [<<"data:">>, urls_to_binary(group_urls(Urls)), <<"\n\n">>],
+            Event = [<<"event: urls\n">>, 
+                     build_data(Urls), 
+                     <<"\n">>],
             case cowboy_http_req:chunk(Event, Req) of
                 ok -> 
                     handle_loop(Req, State);

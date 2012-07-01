@@ -1,6 +1,7 @@
 -module(gr_site_server).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
+-include("shared.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -64,7 +65,7 @@ add_url(Site, {Url, Ref}) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
--record(state, {site, urls=[], tref}).
+-record(state, {site, urls, tref}).
 
 %-spec init({atom(), binary()}) -> {atom(), pid()}
 %      ; init({atom(), binary()}) -> {atom(), binary()}.
@@ -72,14 +73,15 @@ add_url(Site, {Url, Ref}) ->
 init([{site, Site}]) ->
     register_site(Site, self()),
     % Load up the pinger
-    {ok, TRef} = timer:send_interval(1000, {event, ping}),
-    {ok, #state{site=Site, tref=TRef}}.
+    {ok, TRef} = timer:send_interval(?TICK_INTERVAL, {event, ping}),
+    {ok, #state{site=Site, urls=new_ets(), tref=TRef}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({add_url, Url}, #state{urls=Urls} = State) ->
-    {noreply, State#state{urls=[Url|Urls]}};
+handle_cast({add_url, {Url, Ref}}, #state{urls=Urls} = State) ->
+    update_record(Url, Ref, Urls),
+    {noreply, State};
 
 handle_cast(stop, State) ->
     {stop, normal, State};
@@ -89,9 +91,9 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 % Times up!  Send the list to the handlers
-handle_info({event, ping}, #state{site=Site} = State) ->
+handle_info({event, ping}, State) ->
     send_urls(State), 
-    {noreply, #state{site=Site}};
+    {noreply, State#state{urls=new_ets()}};
 
 handle_info(Info, State) ->
     io:format("Uncaught Info: ~p~n", [Info]),
@@ -100,8 +102,10 @@ handle_info(Info, State) ->
 terminate(Reason, #state{site=Site, tref=Tref}) ->
     % Cleanup listeners
     send_terminate_message(Site),
+
     % Stop the timer
     timer:cancel(Tref),
+
     % Clean up groups.
     pg2:delete({?MODULE, site, Site}),
     pg2:delete({?MODULE, listener, Site}),
@@ -129,10 +133,9 @@ send_urls(#state{site=Site, urls=Urls} ) ->
                 % No listeners, nothing to do
                 ok;
             Members ->
-                SortedUrls = lists:sort(Urls),
                 LocalTime = erlang:localtime(),
                 lists:foreach(fun(Pid) ->
-                    Pid ! {?MODULE, {urls, LocalTime, SortedUrls}}
+                    Pid ! {?MODULE, {urls, LocalTime, Urls}}
                 end, Members)
         end
     end).
@@ -152,6 +155,17 @@ using_site(Site, Fun) ->
         Other ->
             Other
     end.
+
+update_record(Url, Ref, Table) ->
+    Key = {Url, Ref},
+    try ets:update_counter(Table, Key, {2, 1})
+    catch
+        error:Reason ->
+            ets:insert(Table, {Key, 1})
+    end.
+
+new_ets() ->
+    ets:new(?MODULE, []).
 
 get_listeners(Site) ->
     pg2:get_members({?MODULE, listener, Site}).

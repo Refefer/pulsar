@@ -19,10 +19,32 @@ terminate(_Req, _State) ->
     ok.
 
 % Internal functions
-%handle({command, <<"add">>}, Req, State) ->
-%    with_host_q(fun(Host, Req2) ->
-%        gr_site_server:
-%    end, Req, State).
+handle({command, <<"add">>}, Req, State) ->
+    with_host_q(fun(Host, Req2) ->
+        gr_site_server:add_site(Host),
+        ret_200(Req2, State)
+    end, Req, State);
+
+handle({command, <<"remove">>}, Req, State) ->
+    with_host_q(fun(Host, Req2) ->
+        gr_site_server:delete_site(Host),
+        ret_200(Req2, State)
+    end, Req, State);
+
+handle({command, <<"list">>}, Req, State) ->
+    R = bracket((fun() ->
+        Response = lists:map(fun(Site) ->
+            [<<",">>, quote(Site)]
+        end, gr_site_server:list_sites()),
+        case Response of 
+            [[Q, Site] | Sites] ->
+                [Site | Sites];
+            [] ->
+                []
+        end
+    end)()),
+    {ok, Req2} = cowboy_http_req:reply(200, [], R, Req),
+    {ok, Req2, State};
 
 handle({command, <<"watch">>}, Req, State) ->
     with_host_q(fun(Site, Req2) ->

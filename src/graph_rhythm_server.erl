@@ -37,7 +37,7 @@ init(Args) ->
                         {<<".html">>, [<<"text/html">>]}
                      ]}
                 ]},
-            {[<<"watch">>, host], gr_http_watch_handler, []}
+            {[<<"site">>, command], gr_http_site_handler, []}
         ]}
     ],
     %% Name, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts
