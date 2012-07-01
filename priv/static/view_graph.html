@@ -1,0 +1,31 @@
+<html>
+<head>
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+<script type="text/javascript" src="/static/js/highcharts.js"></script>
+<script type="text/javascript" src="/static/js/watcher.js"></script>
+<script type="text/javascript">
+function get_host() {
+    var host = document.getElementById('host');
+    return host.value;
+}
+function watch_host() {
+    watch_site(get_host());
+}
+function build_tick_url() {
+    return "/tick/" + get_host() + '?r=' + encodeURIComponent(document.referrer);
+}
+function ping_host() {
+    var xmlhttp=new XMLHttpRequest();
+    xmlhttp.open("GET", build_tick_url(), true);
+    xmlhttp.send();
+} 
+</script>
+</head>
+<body>
+
+<input type="text" id="host" />
+<button type="button" id="watch" onclick="javscript:watch_host();">Watch Host</button>
+<button type="button" id="ping" onclick="javscript:ping_host();">Ping Host</button>
+<div id="graph" style="width:100%;height:400px;"></div>
+</body>
+</html>
