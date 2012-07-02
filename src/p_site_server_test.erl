@@ -1,4 +1,4 @@
--module(gr_site_server_test).
+-module(p_site_server_test).
 -include_lib("eunit/include/eunit.hrl").
 
 -define(SITE, foo).
@@ -6,18 +6,18 @@
 
 setup_site(Site) ->
     % make sure the supervisor is started
-    gr_site_server_sup:start_link(),
-    gr_site_server:add_site(Site).
+    p_site_server_sup:start_link(),
+    p_site_server:add_site(Site).
 
 add_listener(Site) ->
-    gr_site_server:add_site_listener(Site, self()).
+    p_site_server:add_site_listener(Site, self()).
 
 add_urls(Site) ->
     add_urls(Site, ?URLS).
 
 add_urls(Site, Urls) ->
     lists:foreach(fun(UR) ->
-        gr_site_server:add_url(Site, UR)
+        p_site_server:add_url(Site, UR)
     end, Urls).
 
 simple_test() ->
@@ -33,7 +33,7 @@ simple_test() ->
     end.
 
 listen_loop(0, _Other) ->
-    gr_site_server:remove_site_listener(self());
+    p_site_server:remove_site_listener(self());
 
 listen_loop(N, [Exp|Rest]) ->
     receive 
@@ -50,7 +50,7 @@ spawn_listen_loops(0, _Site, _NumLoops, _Equals) ->
     ok;
 spawn_listen_loops(Num, Site, NumLoops, Equals) ->
     spawn(fun() -> 
-        gr_site_server:add_site_listener(Site, self()),
+        p_site_server:add_site_listener(Site, self()),
         listen_loop(2, Equals) 
     end),
     spawn_listen_loops(Num-1, Site, NumLoops, Equals).

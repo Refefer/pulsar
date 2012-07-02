@@ -1,5 +1,5 @@
 
--module(graph_rhythm_sup).
+-module(pulsar_sup).
 
 -behaviour(supervisor).
 
@@ -24,7 +24,7 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    HttpServer = ?CHILD(graph_rhythm_server, worker),
-    SiteServer = ?CHILD(gr_site_server_sup, supervisor),
+    HttpServer = ?CHILD(pulsar_server, worker),
+    SiteServer = ?CHILD(p_site_server_sup, supervisor),
     {ok, { {one_for_one, 5, 10}, [HttpServer, SiteServer]} }.
 

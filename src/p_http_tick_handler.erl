@@ -1,4 +1,4 @@
--module(gr_http_tick_handler).
+-module(p_http_tick_handler).
 -export([init/3, handle/2, terminate/2]).
 
 init({tcp, http}, Req, _Opts) ->
@@ -21,7 +21,7 @@ handle(Req, State) ->
     {Url, Req2} = get_referrer(Req),
     {[UrlRef], Req3} = get_qs(Req2),
     {Host, Req4} = cowboy_http_req:binding(host, Req3),
-    case gr_site_server:add_url(Host, {Url, UrlRef}) of
+    case p_site_server:add_url(Host, {Url, UrlRef}) of
         {error, not_defined} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"Site Not Watched">>, Req4);
         ok ->

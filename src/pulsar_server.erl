@@ -1,4 +1,4 @@
--module(graph_rhythm_server).
+-module(pulsar_server).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -30,14 +30,14 @@ init(Args) ->
     Dispatch = [
         %% {Host, list({Path, Handler, Opts})}
         {'_', [
-            {[<<"tick">>, host], gr_http_tick_handler, []},
+            {[<<"tick">>, host], p_http_tick_handler, []},
             {[<<"static">>, '...'], cowboy_http_static, 
                 [{directory, <<"./priv/static">>},
                      {mimetypes, [
                         {<<".html">>, [<<"text/html">>]}
                      ]}
                 ]},
-            {[<<"site">>, command], gr_http_site_handler, []}
+            {[<<"site">>, command], p_http_site_handler, []}
         ]}
     ],
     %% Name, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts

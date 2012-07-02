@@ -1,4 +1,4 @@
--module(graph_rhythm).
+-module(pulsar).
 -export([start/0, stop/0]).
 
 ensure_started(App) ->
@@ -26,8 +26,8 @@ load_dependencies(App) ->
     end.
 
 start() ->
-    load_dependencies(graph_rhythm),
-    application:start(graph_rhythm).
+    load_dependencies(pulsar),
+    application:start(pulsar).
 
 stop() ->
-    application:stop(graph_rhythm).
+    application:stop(pulsar).

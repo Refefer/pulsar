@@ -1,4 +1,4 @@
--module(gr_site_server).
+-module(p_site_server).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 -include("shared.hrl").
@@ -32,7 +32,7 @@ add_site(Site) ->
         {error, not_defined} ->
             pg2:create({?MODULE, site, Site}),
             pg2:create({?MODULE, listener, Site}),
-            supervisor:start_child(gr_site_server_sup, [{site, Site}])
+            supervisor:start_child(p_site_server_sup, [{site, Site}])
     end.
 
 delete_site(Site) ->

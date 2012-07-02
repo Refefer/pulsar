@@ -1,2 +1,2 @@
 #!/bin/sh
-rebar compile && erl -boot start_sasl -sname graph_rhythm -pa deps/*/ebin ebin -s graph_rhythm +A 4 +K true
+rebar compile && erl -boot start_sasl -sname pulsar -pa deps/*/ebin ebin -s pulsar +A 4 +K true

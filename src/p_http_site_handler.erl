@@ -1,4 +1,4 @@
--module(gr_http_site_handler).
+-module(p_http_site_handler).
 -behaviour(cowboy_http_handler).
 -export([init/3, handle/2, terminate/2]).
 
@@ -21,13 +21,13 @@ terminate(_Req, _State) ->
 % Internal functions
 handle({command, <<"add">>}, Req, State) ->
     with_host_q(fun(Host, Req2) ->
-        gr_site_server:add_site(Host),
+        p_site_server:add_site(Host),
         ret_200(Req2, State)
     end, Req, State);
 
 handle({command, <<"remove">>}, Req, State) ->
     with_host_q(fun(Host, Req2) ->
-        gr_site_server:delete_site(Host),
+        p_site_server:delete_site(Host),
         ret_200(Req2, State)
     end, Req, State);
 
@@ -35,7 +35,7 @@ handle({command, <<"list">>}, Req, State) ->
     R = bracket((fun() ->
         Response = lists:map(fun(Site) ->
             [<<",">>, quote(Site)]
-        end, gr_site_server:list_sites()),
+        end, p_site_server:list_sites()),
         case Response of 
             [[Q, Site] | Sites] ->
                 [Site | Sites];
@@ -48,7 +48,7 @@ handle({command, <<"list">>}, Req, State) ->
 
 handle({command, <<"watch">>}, Req, State) ->
     with_host_q(fun(Site, Req2) ->
-        case gr_site_server:add_site_listener(Site, self()) of
+        case p_site_server:add_site_listener(Site, self()) of
             {error, _Reason} ->
                 ret(501, Req2, State, <<"">>);
             ok ->
@@ -102,7 +102,7 @@ build_data(Urls) ->
 
 handle_loop(Req, State={site, Site}) ->
     receive
-        {gr_site_server, {urls, Time, Urls}} ->
+        {p_site_server, {urls, Time, Urls}} ->
             Event = [<<"event: urls\n">>, 
                      build_data(Urls), 
                      <<"\n">>],
@@ -111,11 +111,11 @@ handle_loop(Req, State={site, Site}) ->
                     handle_loop(Req, State);
                 {error, closed} ->
                     % We are done here!
-                    gr_site_server:remove_site_listener(Site, self()),
+                    p_site_server:remove_site_listener(Site, self()),
                     {ok, Req, undefined}
             end;
 
-        {gr_site_server, {terminate, Site}} ->
+        {p_site_server, {terminate, Site}} ->
             % Someone said to stop watching the site, so exit.
             {ok, Req, finished}
     end.

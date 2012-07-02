@@ -1,4 +1,4 @@
--module(gr_site_server_sup).
+-module(p_site_server_sup).
 -behaviour(supervisor).
 
 %% API
@@ -31,6 +31,6 @@ shutdown_server(Pid) ->
 %% ===================================================================
 
 init([]) ->
-    Server = ?CHILD(gr_site_server, worker),
+    Server = ?CHILD(p_site_server, worker),
     {ok, { { simple_one_for_one, 5, 10}, [Server]} }.
 

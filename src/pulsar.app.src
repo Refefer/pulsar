@@ -1,4 +1,4 @@
-{application, graph_rhythm,
+{application, pulsar,
  [
   {description, ""},
   {vsn, "1"},
@@ -8,6 +8,6 @@
                   stdlib,
                   cowboy
                  ]},
-  {mod, { graph_rhythm_app, []}},
+  {mod, { pulsar_app, []}},
   {env, []}
  ]}.
