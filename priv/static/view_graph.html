@@ -3,29 +3,134 @@
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
 <script type="text/javascript" src="/static/js/highcharts.js"></script>
 <script type="text/javascript" src="/static/js/watcher.js"></script>
+<style>
+    #graph {
+        height:400px;
+        margin-left: 210px;
+        overflow:hidden;
+    }
+    #hostlist {
+        float:left;
+        width: 200px;
+    }
+    #hostlist li {
+        cursor:pointer;
+    }
+    li.disabled {
+        text-decoration: line-through;
+    }
+    div.host_tools {
+        height:100%;
+    }
+    #top_items ul {
+        float:left;
+    }
+</style>
 <script type="text/javascript">
 function get_host() {
     var host = document.getElementById('host');
     return host.value;
 }
+
 function watch_host() {
-    watch_site(get_host());
+    graph.watch_site(get_host());
 }
-function build_tick_url() {
-    return "/tick/" + get_host() + '?r=' + encodeURIComponent(document.referrer);
+
+function build_tick_url(host) {
+    return "/tick/" + host + '?r=' + encodeURIComponent(document.referrer);
 }
+
 function ping_host() {
-    var xmlhttp=new XMLHttpRequest();
-    xmlhttp.open("GET", build_tick_url(), true);
-    xmlhttp.send();
+    var host = prompt("Which host?");
+    var tick = build_tick_url(host);
+    window.setInterval(function() {
+        var xmlhttp=new XMLHttpRequest();
+        xmlhttp.open("GET", tick, true);
+        xmlhttp.send();
+    }, 100);
 } 
+
+function list_to_li(target, items) {
+    $t = $(target);
+    for(var i = 0; i < items.length; i++) {
+        $t.append('<li>'+items[i][1]+ ' ' + items[i][0]+ '</li>');
+    }
+}
+
+function add_host() {
+    var host = prompt("Which host to add?");
+    PulsarAPI.add_host(host, function() {
+        populate_hosts();
+    });
+}
+
+function populate_hosts() {
+    PulsarAPI.list_hosts(function(sites) {
+        for(var i=0; i < sites.length; i++) {
+            var host = sites[i];
+            if($('#hostlist li[host="'+host+'"]').length === 0) {
+                $('#hostlist').append('<li host="'+host+'" class="disabled">'+host+'</li>');
+            }
+        }
+    });
+}
+
+$(function() {
+    function sort_item_set(data, index) {
+        var items = [];
+        for(var type in data) {
+            items.push([data[type], type]);
+        }
+        items.sort();
+        return items;
+    }
+
+    // add toggle on/off for graphs
+    $('#hostlist').click(function(e) {
+        var $el = $(e.target).toggleClass('disabled');
+        if( !$el.hasClass('disabled') ) {
+            graph.watch_site( $el.html() );
+            graph.add_event_listener($el.html(), 'urls', function(data) {
+                // Clear out the top lists
+                $('#top_items li').remove();
+
+                // Yes, yes, this can be turned into one function.
+                var top_urls = {};
+                var top_refs = {};
+                for(var i = 0; i < data.length; i++) {
+                    var set = data[i];
+                    top_urls[set[0]] = (top_urls[set[0]]  || 0) + set[2];
+                    top_refs[set[1]] = (top_urls[set[1]]  || 0) + set[2];
+                }
+
+                list_to_li('#top_items ul.urls', sort_item_set(top_urls));
+                list_to_li('#top_items ul.refs', sort_item_set(top_refs));
+
+            });
+
+        } else {
+            graph.remove_site($el.html());
+        }
+    });
+
+    // Wire up the grand ol' auto reload for hosts
+    window.setInterval(populate_hosts, 10000);
+    populate_hosts();
+});
+
 </script>
 </head>
 <body>
 
-<input type="text" id="host" />
-<button type="button" id="watch" onclick="javscript:watch_host();">Watch Host</button>
+<div class="tools">
+    <ul id="hostlist"></ul>
+    <div id="graph"></div>
+</div>
 <button type="button" id="ping" onclick="javscript:ping_host();">Ping Host</button>
-<div id="graph" style="width:100%;height:400px;"></div>
+<button type="button" id="add" onclick="javscript:add_host();">Add Host</button>
+<div id="top_items">
+    <ul class="urls"></ul>
+    <ul class="refs"></ul>
+</div>
 </body>
 </html>
