@@ -12,7 +12,7 @@ handle(Req, State) ->
             {ok, Req3, State};
         {Command, Req2} ->
             handle({command, Command}, Req, State)
-    end.
+   end.
 
 
 terminate(_Req, _State) ->
@@ -43,7 +43,7 @@ handle({command, <<"list">>}, Req, State) ->
                 []
         end
     end)()),
-    {ok, Req2} = cowboy_http_req:reply(200, [], R, Req),
+    {ok, Req2} = cowboy_http_req:reply(200, [{'Content-Type', <<"application/json">>}], R, Req),
     {ok, Req2, State};
 
 handle({command, <<"watch">>}, Req, State) ->
@@ -91,11 +91,13 @@ quote(Item) ->
 
 urls_to_binary(Urls) ->
     bracket(urls_to_binary(lists:reverse(Urls), [])).
-urls_to_binary([], Acc) ->
+urls_to_binary([], [Comma|Acc]) ->
     Acc;
+urls_to_binary([], []) ->
+    [];
 urls_to_binary([{{Url, Ref}, Count}|Rest], Acc) ->
     S = bracket([quote(Url), ",", quote(Ref), ",", integer_to_list(Count)]),
-    urls_to_binary(Rest, [S|Acc]).
+    urls_to_binary(Rest, [<<",">>,S|Acc]).
 
 build_data(Urls) ->
     [<<"data:">>, urls_to_binary(ets:match_object(Urls, '_')), <<"\n">>].

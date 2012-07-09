@@ -127,7 +127,7 @@ send_terminate_message(Site) ->
     end.
 
 send_urls(#state{site=Site, urls=Urls} ) ->
-    spawn(fun() ->
+    Pid = spawn(fun() ->
         case get_listeners(Site) of
             [] ->
                 % No listeners, nothing to do
@@ -136,14 +136,21 @@ send_urls(#state{site=Site, urls=Urls} ) ->
                 LocalTime = erlang:localtime(),
                 lists:foreach(fun(Pid) ->
                     Pid ! {?MODULE, {urls, LocalTime, Urls}}
-                end, Members)
+                end, Members),
+                % Sleep one minute before cleaning up.
+                timer:sleep(60000)
         end
-    end).
+    end),
+    % We give away the table to make sure that it properly gets
+    % cleaned up.  TODO: Make this a smarter gen_fsm.
+    ets:give_away(Urls, Pid, []).
 
 get_site(Name) ->
     case pg2:get_members({?MODULE, site, Name}) of
         [Pid] ->
             {ok, Pid};
+        [] ->
+            {error, died};
         {error, _Reason} ->
             {error, not_defined}
     end.

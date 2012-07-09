@@ -9,5 +9,7 @@
                   cowboy
                  ]},
   {mod, { pulsar_app, []}},
-  {env, []}
+  {env, [
+    {storage_path, "/tmp/pulsar"}
+  ]}
  ]}.
