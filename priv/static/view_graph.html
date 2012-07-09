@@ -1,6 +1,7 @@
 <html>
 <head>
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+<script type="text/javascript" src="/static/js/jquery.quicksand.js"></script>
 <script type="text/javascript" src="/static/js/highcharts.js"></script>
 <script type="text/javascript" src="/static/js/watcher.js"></script>
 <style>
@@ -24,14 +25,21 @@
     }
     #top_items ul {
         float:left;
+        list-style: none;
+    }
+    #top_items li {
+        margin: 10px;
+    }
+
+    #top_items ul.refs li {
+        background-color: yellow;
+    }
+
+    #top_items ul.urls li {
+        background-color: #BBB;
     }
 </style>
 <script type="text/javascript">
-function get_host() {
-    var host = document.getElementById('host');
-    return host.value;
-}
-
 function watch_host() {
     graph.watch_site(get_host());
 }
@@ -53,7 +61,7 @@ function ping_host() {
 function list_to_li(target, items) {
     $t = $(target);
     for(var i = 0; i < items.length; i++) {
-        $t.append('<li>'+items[i][1]+ ' ' + items[i][0]+ '</li>');
+        $t.append('<li>' + items[i][0]  + ' ' + items[i][1] + '</li>');
     }
 }
 
@@ -81,8 +89,8 @@ $(function() {
         for(var type in data) {
             items.push([data[type], type]);
         }
-        items.sort();
-        return items;
+        items.sort(function(x,y) {return x[0] > y[0]});
+        return items.reverse();
     }
 
     // add toggle on/off for graphs
