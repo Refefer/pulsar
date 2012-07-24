@@ -84,7 +84,7 @@ $(document).ready(function() {
                 data: (function() {
                     var time = new Date().getTime();
                     var data = [];
-                    for(var i = 0; i < 30; i++) {
+                    for(var i = 0; i < 100; i++) {
                         data.push({x: (time - (i * 5000)), y: 0});
                     }
                     return data.reverse();
@@ -125,6 +125,8 @@ $(document).ready(function() {
         var es = EventSources[hostname];
         if(!es) return;
         es.source.close();
+        es.series.remove();
+        delete EventSources[hostname];
     }
 
     graph.add_event_listener = function(host, event, callback) {
