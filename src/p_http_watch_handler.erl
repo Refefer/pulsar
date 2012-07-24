@@ -26,24 +26,8 @@ handle(Req, State) ->
 terminate(_Req, _State) ->
     ok.
             
-wrap(Item, Char) ->
-    wrap(Item, Char, Char).
-wrap(Item, SChar, EChar) ->
-    [SChar, Item, EChar].
-
-bracket(Item) ->
-    wrap(Item, <<"[">>, <<"]">>).
-
-quote(Item) ->
-    wrap(Item, <<"\"">>).
-
 urls_to_binary(Urls) ->
-    bracket(urls_to_binary(lists:reverse(Urls), [])).
-urls_to_binary([], Acc) ->
-    Acc;
-urls_to_binary([{{Url, Ref}, Count}|Rest], Acc) ->
-    S = bracket([quote(Url), ",", quote(Ref), ",", integer_to_list(Count)]),
-    urls_to_binary(Rest, [S|Acc]).
+    json:encode(lists:map(fun({Url, Ref, Count}) -> [Url, Ref, Count] end, Urls)).
 
 build_data(Urls) ->
     [<<"data:">>, urls_to_binary(ets:match_object(Urls, '_')), <<"\n">>].

@@ -8,8 +8,29 @@ get_ip_address(Req) ->
     {{N1,N2,N3,N4}, Req2} = cowboy_http_req:peer_addr(Req),
     {io_lib:format("~B.~B.~B.~B", [N1, N2, N3, N4]), Req2}.
 
+parse_path(<<"http://", Rest/binary>>) ->
+    remove_host(Rest);
+parse_path(<<"https://", Rest/binary>>) ->
+    remove_host(Rest);
+parse_path(_Unknown) ->
+    <<"Unknown Protocol">>.
+
+remove_host(Path) ->
+    case binary:split(Path, <<"/">>) of
+        [Host, Rest] ->
+            << <<"/">>/binary, Rest/binary>>;
+        [Rest] ->
+            % Not sure how this could happen since it's a bad url
+            Rest
+    end.
+    
 get_referrer(Req) ->
-    cowboy_http_req:header('Referer', Req, <<"none">>).
+    case cowboy_http_req:header('Referer', Req, none) of
+        {none, Req2} ->
+            {<<"none">>, Req2};
+        {Referrer, Req2} ->
+            {parse_path(Referrer), Req2}
+    end.
 
 get_qs(Req) ->
     lists:foldl(fun(Q, {Vs, R}) ->
