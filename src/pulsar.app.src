@@ -6,7 +6,8 @@
   {applications, [
                   kernel,
                   stdlib,
-                  cowboy
+                  cowboy,
+                  simple_cache
                  ]},
   {mod, { pulsar_app, []}},
   {env, [

@@ -1,5 +1,9 @@
 -module(p_http_tick_handler).
+
 -export([init/3, handle/2, terminate/2]).
+
+% Included so we can cache qs, since that can be quite expensive.
+-include("deps/cowboy/include/http.hrl").
 
 init({tcp, http}, Req, _Opts) ->
     {ok, Req, undefined_state}.
@@ -32,11 +36,21 @@ get_referrer(Req) ->
             {parse_path(Referrer), Req2}
     end.
 
-get_qs(Req) ->
-    lists:foldl(fun(Q, {Vs, R}) ->
-        {Value, R2} = cowboy_http_req:qs_val(Q, R, <<"none">>),
-        {[Value | Vs], R2}
-    end, {[], Req}, [<<"r">>]).
+get_qs(#http_req{raw_qs=RawQs} = Req) ->
+    case simple_cache:lookup({qs, RawQs}) of
+        {error, missing} ->
+            {Qs, Req2} = lists:foldl(fun(Q, {Vs, R}) ->
+                        {Value, R2} = cowboy_http_req:qs_val(Q, R, <<"none">>),
+                        {[Value | Vs], R2}
+                    end, {[], Req}, [<<"r">>]),
+
+            simple_cache:set({qs, RawQs}, {Qs, Req2#http_req.qs_vals}, 60),
+            {Qs, Req2};
+
+        {ok, {Qs, AllQs}} ->
+            Req2 = Req#http_req{qs_vals=AllQs},
+            {Qs, Req2}
+    end.
 
 handle(Req, State) ->
     {Url, Req2} = get_referrer(Req),
