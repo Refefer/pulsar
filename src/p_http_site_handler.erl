@@ -32,29 +32,24 @@ handle({command, <<"remove">>}, Req, State) ->
     end, Req, State);
 
 handle({command, <<"list">>}, Req, State) ->
-    R = bracket((fun() ->
-        Response = lists:map(fun(Site) ->
-            [<<",">>, quote(Site)]
-        end, p_site_server:list_sites()),
-        case Response of 
-            [[Q, Site] | Sites] ->
-                [Site | Sites];
-            [] ->
-                []
-        end
-    end)()),
+    {ok, R} = json:encode(p_site_server:list_sites()),
     {ok, Req2} = cowboy_http_req:reply(200, [{'Content-Type', <<"application/json">>}], R, Req),
     {ok, Req2, State};
 
 handle({command, <<"watch">>}, Req, State) ->
     with_host_q(fun(Site, Req2) ->
-        case p_site_server:add_site_listener(Site, self()) of
-            {error, _Reason} ->
-                ret(501, Req2, State, <<"">>);
-            ok ->
-                Headers = [{'Content-Type', <<"text/event-stream">>}],
-                {ok, Req3} = cowboy_http_req:chunked_reply(200, Headers, Req2),
-                handle_loop(Req3, {site, Site})
+        case cowboy_http_req:qs_val(<<"key">>, Req2, undefined) of
+            {undefined, Req2} ->
+                ret(415, Req, State, <<"Missing 'key' field">>);
+            {Key, Req2} ->
+                case p_site_server:add_site_listener(Site, self()) of
+                    {error, Reason} ->
+                        ret(501, Req2, State, <<"">>);
+                    ok ->
+                        Headers = [{'Content-Type', <<"text/event-stream">>}],
+                        {ok, Req3} = cowboy_http_req:chunked_reply(200, Headers, Req2),
+                        watch_loop(Req3, {site, Site, Key})
+                end
         end
     end, Req, State);
 
@@ -78,39 +73,22 @@ ret(Code, Req, State, Msg) ->
     {ok, Req2} = cowboy_http_req:reply(Code, [], [Msg], Req),
     {ok, Req2, State}.
             
-wrap(Item, Char) ->
-    wrap(Item, Char, Char).
-wrap(Item, SChar, EChar) ->
-    [SChar, Item, EChar].
+build_data(Table) ->
+    build_data(Table, <<"url">>).
 
-bracket(Item) ->
-    wrap(Item, <<"[">>, <<"]">>).
+build_data(Table, Type) ->
+    {ok, Matches} = json:encode(ets:match(Table, {{Type, '$1'}, '$2'})),
+    [<<"data:">>, Matches, <<"\n">>].
 
-quote(Item) ->
-    wrap(Item, <<"\"">>).
-
-urls_to_binary(Urls) ->
-    bracket(urls_to_binary(lists:reverse(Urls), [])).
-urls_to_binary([], [Comma|Acc]) ->
-    Acc;
-urls_to_binary([], []) ->
-    [];
-urls_to_binary([{{Url, Ref}, Count}|Rest], Acc) ->
-    S = bracket([quote(Url), ",", quote(Ref), ",", integer_to_list(Count)]),
-    urls_to_binary(Rest, [<<",">>,S|Acc]).
-
-build_data(Urls) ->
-    [<<"data:">>, urls_to_binary(ets:match_object(Urls, '_')), <<"\n">>].
-
-handle_loop(Req, State={site, Site}) ->
+watch_loop(Req, State={site, Site, Key}) ->
     receive
-        {p_site_server, {urls, Time, Urls}} ->
-            Event = [<<"event: urls\n">>, 
-                     build_data(Urls), 
+        {p_site_server, {stats, Time, Table}} ->
+            Event = [<<"event: ">>, Key, "\n",
+                     build_data(Table, Key), 
                      <<"\n">>],
             case cowboy_http_req:chunk(Event, Req) of
                 ok -> 
-                    handle_loop(Req, State);
+                    watch_loop(Req, State);
                 {error, closed} ->
                     % We are done here!
                     p_site_server:remove_site_listener(Site, self()),

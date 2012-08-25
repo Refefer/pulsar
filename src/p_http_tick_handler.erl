@@ -1,5 +1,5 @@
 -module(p_http_tick_handler).
-
+-behaviour(cowboy_http_handler).
 -export([init/3, handle/2, terminate/2]).
 
 % Included so we can cache qs, since that can be quite expensive.
@@ -39,11 +39,7 @@ get_referrer(Req) ->
 get_qs(#http_req{raw_qs=RawQs} = Req) ->
     case simple_cache:lookup({qs, RawQs}) of
         {error, missing} ->
-            {Qs, Req2} = lists:foldl(fun(Q, {Vs, R}) ->
-                        {Value, R2} = cowboy_http_req:qs_val(Q, R, <<"none">>),
-                        {[Value | Vs], R2}
-                    end, {[], Req}, [<<"r">>]),
-
+            {Qs, Req2} = cowboy_http_req:qs_vals(Req),
             simple_cache:set({qs, RawQs}, {Qs, Req2#http_req.qs_vals}, 60),
             {Qs, Req2};
 
@@ -54,9 +50,9 @@ get_qs(#http_req{raw_qs=RawQs} = Req) ->
 
 handle(Req, State) ->
     {Url, Req2} = get_referrer(Req),
-    {[UrlRef], Req3} = get_qs(Req2),
+    {Metrics, Req3} = get_qs(Req2),
     {Host, Req4} = cowboy_http_req:binding(host, Req3),
-    case p_site_server:add_url(Host, {Url, UrlRef}) of
+    case p_site_server:add_metrics(Host, [{<<"url">>, Url}| Metrics]) of
         {error, not_defined} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"Site Not Watched">>, Req4);
         ok ->

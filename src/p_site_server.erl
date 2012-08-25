@@ -7,7 +7,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, add_site/1, add_url/2, 
+-export([start_link/1, add_site/1, add_metrics/2, 
          add_site_listener/2, remove_site_listener/2,
          list_sites/0, delete_site/1]).
 
@@ -49,7 +49,7 @@ list_sites() ->
                 false
         end
     end, pg2:which_groups()),
-    lists:map(fun({_Module, _Site, Site}) -> Site end, Sites).
+    lists:map(fun({_Module, site, Site}) -> Site end, Sites).
 
 add_site_listener(Site, Pid) ->
     register_listener(Site, Pid).
@@ -57,15 +57,15 @@ add_site_listener(Site, Pid) ->
 remove_site_listener(Site, Pid) ->
     unregister_listener(Site, Pid).
 
-add_url(Site, {Url, Ref}) ->
+add_metrics(Site, Metrics) ->
     using_site(Site, fun(Pid) -> 
-        gen_server:cast(Pid, {add_url, {Url, Ref}})
+        gen_server:cast(Pid, {add_metrics, Metrics})
     end).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
--record(state, {site, urls, tref}).
+-record(state, {site, table, tref}).
 
 %-spec init({atom(), binary()}) -> {atom(), pid()}
 %      ; init({atom(), binary()}) -> {atom(), binary()}.
@@ -74,13 +74,13 @@ init([{site, Site}]) ->
     register_site(Site, self()),
     % Load up the pinger
     {ok, TRef} = timer:send_interval(?TICK_INTERVAL, {event, ping}),
-    {ok, #state{site=Site, urls=new_ets(), tref=TRef}}.
+    {ok, #state{site=Site, table=new_ets(), tref=TRef}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({add_url, {Url, Ref}}, #state{urls=Urls} = State) ->
-    update_record(Url, Ref, Urls),
+handle_cast({add_metrics, Metrics}, #state{table=Table} = State) ->
+    update_records(Table, Metrics),
     {noreply, State};
 
 handle_cast(stop, State) ->
@@ -93,7 +93,7 @@ handle_cast(Msg, State) ->
 % Times up!  Send the list to the handlers
 handle_info({event, ping}, State) ->
     send_urls(State), 
-    {noreply, State#state{urls=new_ets()}};
+    {noreply, State#state{table=new_ets()}};
 
 handle_info(Info, State) ->
     io:format("Uncaught Info: ~p~n", [Info]),
@@ -126,7 +126,7 @@ send_terminate_message(Site) ->
                 Pid ! {?MODULE, {terminate, Site}} end, Members)
     end.
 
-send_urls(#state{site=Site, urls=Urls} ) ->
+send_urls(#state{site=Site, table=Table} ) ->
     Pid = spawn(fun() ->
         case get_listeners(Site) of
             [] ->
@@ -135,7 +135,7 @@ send_urls(#state{site=Site, urls=Urls} ) ->
             Members ->
                 LocalTime = erlang:localtime(),
                 lists:foreach(fun(Pid) ->
-                    Pid ! {?MODULE, {urls, LocalTime, Urls}}
+                    Pid ! {?MODULE, {stats, LocalTime, Table}}
                 end, Members),
                 % Sleep one minute before cleaning up.
                 timer:sleep(60000)
@@ -143,7 +143,7 @@ send_urls(#state{site=Site, urls=Urls} ) ->
     end),
     % We give away the table to make sure that it properly gets
     % cleaned up.  TODO: Make this a smarter gen_fsm.
-    ets:give_away(Urls, Pid, []).
+    ets:give_away(Table, Pid, []).
 
 get_site(Name) ->
     case pg2:get_members({?MODULE, site, Name}) of
@@ -163,13 +163,15 @@ using_site(Site, Fun) ->
             Other
     end.
 
-update_record(Url, Ref, Table) ->
-    Key = {Url, Ref},
-    try ets:update_counter(Table, Key, {2, 1})
-    catch
-        error:Reason ->
-            ets:insert(Table, {Key, 1})
-    end.
+update_records(Table, Metrics) ->
+    lists:foreach(fun({Metric, Value}) ->
+        Key = {Metric, Value},
+        try ets:update_counter(Table, Key, {2, 1})
+        catch
+            error:_Reason ->
+                ets:insert(Table, {Key, 1})
+        end
+    end, Metrics).
 
 new_ets() ->
     ets:new(?MODULE, []).

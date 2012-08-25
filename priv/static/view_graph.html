@@ -1,144 +1,126 @@
 <html>
 <head>
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
-<script type="text/javascript" src="/static/js/jquery.quicksand.js"></script>
 <script type="text/javascript" src="/static/js/highcharts.js"></script>
-<script type="text/javascript" src="/static/js/watcher.js"></script>
+<script type="text/javascript" src="/static/js/pulsar_api.js"></script>
 <style>
-    #graph {
-        height:400px;
-        margin-left: 210px;
-        overflow:hidden;
-    }
-    #hostlist {
-        float:left;
-        width: 200px;
-    }
-    #hostlist li {
-        cursor:pointer;
-    }
-    li.disabled {
-        text-decoration: line-through;
-    }
-    div.host_tools {
-        height:100%;
-    }
-    #top_items ul {
-        float:left;
-        list-style: none;
-    }
-    #top_items li {
-        margin: 10px;
-    }
-
-    #top_items ul.refs li {
-        background-color: yellow;
-    }
-
-    #top_items ul.urls li {
-        background-color: #BBB;
-    }
+html,body {
+    margin: 0;
+    padding: 0;
+}
+#graph {
+    overflow:hidden;
+}
 </style>
 <script type="text/javascript">
-function watch_host() {
-    graph.watch_site(get_host());
-}
+$(function() {
+    // Get the data from the url
+    var hashdata = (function() {
+        var d = {};
+        var pieces = document.location.hash.substr(1).split(',');
+        for(var i = 0; i < pieces.length; i++) {
+            var keyvalue = pieces[i].split('=');;
+            d[keyvalue[0]] = keyvalue[1];
+        }
+        return d;
+    })();
 
-function build_tick_url(host) {
-    return "/tick/" + host + '?r=' + encodeURIComponent(document.referrer);
-}
-
-function ping_host() {
-    var host = prompt("Which host?");
-    var tick = build_tick_url(host);
-    window.setInterval(function() {
-        var xmlhttp=new XMLHttpRequest();
-        xmlhttp.open("GET", tick, true);
-        xmlhttp.send();
-    }, 100);
-} 
-
-function list_to_li(target, items) {
-    $t = $(target);
-    for(var i = 0; i < items.length; i++) {
-        $t.append('<li>' + items[i][0]  + ' ' + items[i][1] + '</li>');
-    }
-}
-
-function add_host() {
-    var host = prompt("Which host to add?");
-    PulsarAPI.add_host(host, function() {
-        populate_hosts();
+    
+    $('#graph').css({
+        height: hashdata.height || window.innerHeight
     });
-}
+    
 
-function populate_hosts() {
-    PulsarAPI.list_hosts(function(sites) {
-        for(var i=0; i < sites.length; i++) {
-            var host = sites[i];
-            if($('#hostlist li[host="'+host+'"]').length === 0) {
-                $('#hostlist').append('<li host="'+host+'" class="disabled">'+host+'</li>');
+    Highcharts.setOptions({
+        global: {
+            useUTC: false
+        }
+    });
+
+    var chart = new Highcharts.Chart({
+        chart: {
+            renderTo: 'graph',
+            type: 'line',
+            marginRight: 10,
+        },
+        title: {
+            text: hashdata.title || 'Current Traffic'
+        },
+        xAxis: {
+            type: 'datetime',
+            tickPixelInterval: 150,
+        },
+        yAxis: {
+            title: {
+                text: hashdata.yaxis || 'Current Visitors'
+            },
+            plotLines: [{
+                value: 0,
+                width: 1,
+                color: '#808080'
+            }]
+        },
+        tooltip: {
+            formatter: function() {
+                    return '<b>'+ this.series.name +'</b><br/>'+
+                    Highcharts.dateFormat('%Y-%m-%d %H:%M:%S', this.x) +'<br/>'+
+                    Highcharts.numberFormat(this.y, 2);
+            }
+        },
+        legend: {
+            enabled: true
+        },
+        exporting: {
+            enabled: false
+        },
+        series: []
+    });
+    
+    function add_series(name) {
+        chart.addSeries({
+            name: name,
+            data: (function() {
+                var time = new Date().getTime();
+                var data = [];
+                for(var i = 0; i < 100; i++) {
+                    data.push({x: (time - (i * 5000)), y: 0});
+                }
+                return data.reverse();
+            })()
+        });
+        return chart.series[chart.series.length-1];
+    }
+
+    var all_series = {};
+    PulsarAPI.watch_key(hashdata.host, hashdata.key, function(data) {
+        var time = new Date().getTime();
+        console.log(JSON.stringify(data));
+        var seen_series = {};
+        for(var i = 0; i < data.length; i++) {
+            var name = ""+data[i][0];
+            var counter = data[i][1];
+            var series = all_series[name];
+            console.log('Name: '+ name + ', counter: ' + counter);
+            if(series === undefined) {
+                series = all_series[name] = add_series(name);
+            }
+            series.addPoint([time, counter], true, true);
+            seen_series[name] = 1;
+        }
+
+        // All the others got big 0-fers
+        for(name in all_series) {
+            if(seen_series[name] === undefined) {
+                all_series[name].addPoint([time, 0], true, true);
             }
         }
+
     });
-}
-
-$(function() {
-    function sort_item_set(data, index) {
-        var items = [];
-        for(var type in data) {
-            items.push([data[type], type]);
-        }
-        items.sort(function(x,y) {return x[0] > y[0]});
-        return items.reverse();
-    }
-
-    // add toggle on/off for graphs
-    $('#hostlist').click(function(e) {
-        var $el = $(e.target).toggleClass('disabled');
-        if( !$el.hasClass('disabled') ) {
-            graph.watch_site( $el.html() );
-            graph.add_event_listener($el.html(), 'urls', function(data) {
-                // Clear out the top lists
-                $('#top_items li').remove();
-
-                // Yes, yes, this can be turned into one function.
-                var top_urls = {};
-                var top_refs = {};
-                for(var i = 0; i < data.length; i++) {
-                    var set = data[i];
-                    top_urls[set[0]] = (top_urls[set[0]]  || 0) + set[2];
-                    top_refs[set[1]] = (top_urls[set[1]]  || 0) + set[2];
-                }
-
-                list_to_li('#top_items ul.urls', sort_item_set(top_urls));
-                list_to_li('#top_items ul.refs', sort_item_set(top_refs));
-
-            });
-
-        } else {
-            graph.remove_site($el.html());
-        }
-    });
-
-    // Wire up the grand ol' auto reload for hosts
-    window.setInterval(populate_hosts, 10000);
-    populate_hosts();
+    
 });
-
 </script>
 </head>
 <body>
-
-<div class="tools">
-    <ul id="hostlist"></ul>
-    <div id="graph"></div>
-</div>
-<button type="button" id="ping" onclick="javscript:ping_host();">Ping Host</button>
-<button type="button" id="add" onclick="javscript:add_host();">Add Host</button>
-<div id="top_items">
-    <ul class="urls"></ul>
-    <ul class="refs"></ul>
-</div>
+<div id="graph"></div>
 </body>
 </html>
