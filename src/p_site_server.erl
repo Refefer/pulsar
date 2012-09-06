@@ -52,7 +52,9 @@ list_sites() ->
     lists:map(fun({_Module, site, Site}) -> Site end, Sites).
 
 add_site_listener(Site, Pid) ->
-    register_listener(Site, Pid).
+    using_site(Site, fun(_Pid) ->
+        register_listener(Site, Pid)
+    end).
 
 remove_site_listener(Site, Pid) ->
     unregister_listener(Site, Pid).
@@ -159,8 +161,14 @@ using_site(Site, Fun) ->
     case get_site(Site) of
         {ok, Pid} ->
             Fun(Pid);
-        Other ->
-            Other
+        {error, not_defined} ->
+            case application:get_env(pulsar, dynamic_host) of
+                {ok, true} ->
+                    add_site(Site),
+                    using_site(Site, Fun);
+                _Other ->
+                    {error, not_defined}
+            end
     end.
 
 update_records(Table, Metrics) ->

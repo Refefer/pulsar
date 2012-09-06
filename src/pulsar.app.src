@@ -11,6 +11,6 @@
                  ]},
   {mod, { pulsar_app, []}},
   {env, [
-    {storage_path, "/tmp/pulsar"}
+    {dynamic_host, true}
   ]}
  ]}.

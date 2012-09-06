@@ -41,7 +41,7 @@ init(Args) ->
         ]}
     ],
     %% Name, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts
-    Pid = cowboy:start_listener(?SERVER, 100,
+    Pid = cowboy:start_listener(?SERVER, 150,
         cowboy_tcp_transport, [{port, 8080}],
         cowboy_http_protocol, [{dispatch, Dispatch}]
     ),

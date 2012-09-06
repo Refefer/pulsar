@@ -41,14 +41,14 @@ handle({command, <<"watch">>}, Req, State) ->
         case cowboy_http_req:qs_val(<<"key">>, Req2, undefined) of
             {undefined, Req2} ->
                 ret(415, Req, State, <<"Missing 'key' field">>);
-            {Key, Req2} ->
+            {Keys, Req2} ->
                 case p_site_server:add_site_listener(Site, self()) of
                     {error, Reason} ->
                         ret(501, Req2, State, <<"">>);
                     ok ->
                         Headers = [{'Content-Type', <<"text/event-stream">>}],
                         {ok, Req3} = cowboy_http_req:chunked_reply(200, Headers, Req2),
-                        watch_loop(Req3, {site, Site, Key})
+                        watch_loop(Req3, {site, Site, binary:split(Keys, <<",">>, [global])})
                 end
         end
     end, Req, State);
@@ -61,7 +61,7 @@ with_host_q(Fun, Req, State) ->
         {undefined, Req2} ->
             ret_404(Req2, State);
         {Host, Req2} ->
-            Fun(Host,Req2)
+            Fun(Host, Req2)
     end.
 
 ret_200(Req, State) ->
@@ -80,20 +80,22 @@ build_data(Table, Type) ->
     {ok, Matches} = json:encode(ets:match(Table, {{Type, '$1'}, '$2'})),
     [<<"data:">>, Matches, <<"\n">>].
 
-watch_loop(Req, State={site, Site, Key}) ->
+watch_loop(Req, State={site, Site, Keys}) ->
     receive
         {p_site_server, {stats, Time, Table}} ->
-            Event = [<<"event: ">>, Key, "\n",
-                     build_data(Table, Key), 
-                     <<"\n">>],
-            case cowboy_http_req:chunk(Event, Req) of
-                ok -> 
-                    watch_loop(Req, State);
-                {error, closed} ->
-                    % We are done here!
-                    p_site_server:remove_site_listener(Site, self()),
-                    {ok, Req, undefined}
-            end;
+            lists:foreach(fun(Key) ->
+                Event = [<<"event: ">>, Key, "\n",
+                         build_data(Table, Key), 
+                         <<"\n">>],
+                case cowboy_http_req:chunk(Event, Req) of
+                    ok -> 
+                        watch_loop(Req, State);
+                    {error, closed} ->
+                        % We are done here!
+                        p_site_server:remove_site_listener(Site, self()),
+                        {ok, Req, undefined}
+                end
+            end, Keys);
 
         {p_site_server, {terminate, Site}} ->
             % Someone said to stop watching the site, so exit.
