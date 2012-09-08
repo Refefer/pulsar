@@ -3,6 +3,7 @@
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
 <script type="text/javascript" src="/static/js/highcharts.js"></script>
 <script type="text/javascript" src="/static/js/pulsar_api.js"></script>
+<script type="text/javascript" src="/static/js/pulsar.utils.js"></script>
 <style>
 html,body {
     margin: 0;
@@ -15,16 +16,7 @@ html,body {
 <script type="text/javascript">
 $(function() {
     // Get the data from the url
-    var hashdata = (function() {
-        var d = {};
-        var pieces = document.location.hash.substr(1).split(',');
-        for(var i = 0; i < pieces.length; i++) {
-            var keyvalue = pieces[i].split('=');;
-            d[keyvalue[0]] = keyvalue[1];
-        }
-        return d;
-    })();
-
+    var hashdata = PulsarUtils.data_from_hash();
     
     $('#graph').css({
         height: hashdata.height || window.innerHeight
@@ -100,7 +92,6 @@ $(function() {
             var name = ""+data[i][0];
             var counter = data[i][1];
             var series = all_series[name];
-            console.log('Name: '+ name + ', counter: ' + counter);
             if(series === undefined) {
                 series = all_series[name] = add_series(name);
             }
@@ -111,7 +102,20 @@ $(function() {
         // All the others got big 0-fers
         for(name in all_series) {
             if(seen_series[name] === undefined) {
-                all_series[name].addPoint([time, 0], true, true);
+                // Check if it's all zero and remove it is
+                var series = all_series[name];
+                var all_zero = true;
+                for(var i = 0; i < series.data.length; i++) {
+                    if(series.data[i].y > 0) {
+                        series.addPoint([time, 0], true, true);        
+                        all_zero = false;
+                        break;
+                    }
+                }
+                if(all_zero) {
+                    series.remove();
+                }
+                
             }
         }
 

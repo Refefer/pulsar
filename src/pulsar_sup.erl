@@ -25,6 +25,6 @@ start_link() ->
 
 init([]) ->
     HttpServer = ?CHILD(pulsar_server, worker),
-    SiteServer = ?CHILD(p_site_server_sup, supervisor),
+    SiteServer = ?CHILD(p_stat_server_sup, supervisor),
     {ok, { {one_for_one, 5, 10}, [HttpServer, SiteServer]} }.
 

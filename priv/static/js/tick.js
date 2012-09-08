@@ -47,8 +47,15 @@
             req.send();
         }
     })();
-    // Pings 
-    function ping(url, state) {
+    
+    function obj_to_get(obj) {
+        var attrs = [];
+        for(var k in obj) {
+            attrs.push(''+ k + '=' + encodeURIComponent('' + obj[k]));
+        }
+        return attrs.join('&');
+    }
+    function pulse(url, state) {
         if(state.waiting) return;
 
         function clear_waiting() {
@@ -64,23 +71,24 @@
         clear_waiting);
         state.waiting = true;
     }
+    var state = {timeout:null};
+    window.Pulsar = {
+        ping: function(values) {
 
-    // Build pinger url
-    var url  = (function build_tick_url(host) {
-        var referrer_host = parse_url(document.referrer).host;
-        var attrs = ['r=' + referrer_host,
-                     't=' + encodeURIComponent(document.title)];
+            // Build pinger url
+            state.url  = (function build_tick_url(host) {
+                // Get referring host
+                values.ref = parse_url(document.referrer).host;
+                return "/tick/" + host + '?' + obj_to_get(values);
+            })(values.host === undefined ? document.location.host : values.host);
 
-        return "/tick/" + host + '?' + attrs.join('&');
-    })(document.location.host);
-
-    var state = {url: url, last_fired: 0};
-
-    // And ping
-    state.timeout = window.setInterval(function() {
-        if(window.PULSAR_HOST !== undefined) {
-            ping(window.PULSAR_HOST + state.url, state);
+            // And ping
+            state.timeout = window.setInterval(function() {
+                if(window.PULSAR_HOST !== undefined) {
+                    pulse(window.PULSAR_HOST + state.url, state);
+                }
+            }, 5000);
         }
-    }, 5000);
+    }
     
 })();

@@ -14,6 +14,9 @@ var PulsarAPI = (function() {
                 data: {"host": host},
                 success: callback
             });
+        },
+        watch_host: function(host, statistic) {
+            var es = new EventSource('/site/watch?host=' + hostname);
         }
     }
 })();

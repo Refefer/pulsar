@@ -21,18 +21,18 @@ terminate(_Req, _State) ->
 % Internal functions
 handle({command, <<"add">>}, Req, State) ->
     with_host_q(fun(Host, Req2) ->
-        p_site_server:add_site(Host),
+        p_stat_server:add_site(Host),
         ret_200(Req2, State)
     end, Req, State);
 
 handle({command, <<"remove">>}, Req, State) ->
     with_host_q(fun(Host, Req2) ->
-        p_site_server:delete_site(Host),
+        p_stat_server:delete_site(Host),
         ret_200(Req2, State)
     end, Req, State);
 
 handle({command, <<"list">>}, Req, State) ->
-    {ok, R} = json:encode(p_site_server:list_sites()),
+    {ok, R} = json:encode(p_stat_server:list_sites()),
     {ok, Req2} = cowboy_http_req:reply(200, [{'Content-Type', <<"application/json">>}], R, Req),
     {ok, Req2, State};
 
@@ -42,7 +42,7 @@ handle({command, <<"watch">>}, Req, State) ->
             {undefined, Req2} ->
                 ret(415, Req, State, <<"Missing 'key' field">>);
             {Keys, Req2} ->
-                case p_site_server:add_site_listener(Site, self()) of
+                case p_stat_server:add_site_listener(Site, self()) of
                     {error, Reason} ->
                         ret(501, Req2, State, <<"">>);
                     ok ->
@@ -80,24 +80,32 @@ build_data(Table, Type) ->
     {ok, Matches} = json:encode(ets:match(Table, {{Type, '$1'}, '$2'})),
     [<<"data:">>, Matches, <<"\n">>].
 
+send_all_data(_Table, _Req, []) ->
+    ok;
+send_all_data(Table, Req, [Key|Rest]) ->
+    Event = [<<"event: ">>, Key, <<"\n">>,
+             build_data(Table, Key), 
+             <<"\n">>],
+    case cowboy_http_req:chunk(Event, Req) of
+        ok -> 
+            send_all_data(Table, Req, Rest);
+        {error, closed} ->
+            % We are done here!
+            closed
+    end.
+
 watch_loop(Req, State={site, Site, Keys}) ->
     receive
-        {p_site_server, {stats, Time, Table}} ->
-            lists:foreach(fun(Key) ->
-                Event = [<<"event: ">>, Key, "\n",
-                         build_data(Table, Key), 
-                         <<"\n">>],
-                case cowboy_http_req:chunk(Event, Req) of
-                    ok -> 
-                        watch_loop(Req, State);
-                    {error, closed} ->
-                        % We are done here!
-                        p_site_server:remove_site_listener(Site, self()),
+        {p_stat_server, {stats, Time, Table}} ->
+            case send_all_data(Table, Req, Keys) of
+                ok ->
+                    watch_loop(Req, State);
+                closed ->
+                        p_stat_server:remove_site_listener(Site, self()),
+                        io:format("Client closed ~n", []),
                         {ok, Req, undefined}
-                end
-            end, Keys);
-
-        {p_site_server, {terminate, Site}} ->
+            end;
+        {p_stat_server, {terminate, Site}} ->
             % Someone said to stop watching the site, so exit.
             {ok, Req, finished}
     end.

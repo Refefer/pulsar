@@ -34,7 +34,8 @@ init(Args) ->
             {[<<"static">>, '...'], cowboy_http_static, 
                 [{directory, <<"./priv/static">>},
                      {mimetypes, [
-                        {<<".html">>, [<<"text/html">>]}
+                        {<<".html">>, [<<"text/html">>]},
+                        {<<".js">>, [<<"application/javascript">>]}
                      ]}
                 ]},
             {[<<"site">>, command], p_http_site_handler, []}

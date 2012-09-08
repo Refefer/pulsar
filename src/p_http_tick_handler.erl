@@ -52,7 +52,7 @@ handle(Req, State) ->
     {Url, Req2} = get_referrer(Req),
     {Metrics, Req3} = get_qs(Req2),
     {Host, Req4} = cowboy_http_req:binding(host, Req3),
-    case p_site_server:add_metrics(Host, [{<<"url">>, Url}| Metrics]) of
+    case p_stat_server:add_metrics(Host, [{<<"url">>, Url}| Metrics]) of
         {error, not_defined} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"Site Not Watched">>, Req4);
         ok ->
