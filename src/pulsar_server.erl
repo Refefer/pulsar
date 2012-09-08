@@ -47,6 +47,16 @@ init(Args) ->
         cowboy_http_protocol, [{dispatch, Dispatch}]
     ),
 
+    % Load static sites, if available
+    case application:get_env(pulsar, hosts) of
+        undefined ->
+            ok;
+        {ok, Hosts} ->
+            lists:foreach(fun(Site) ->
+                p_stat_server:add_site(erlang:atom_to_binary(Site, latin1))
+            end, Hosts)
+    end,
+
     {ok, Args}.
 
 handle_call(_Request, _From, State) ->
