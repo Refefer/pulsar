@@ -11,6 +11,7 @@
                  ]},
   {mod, { pulsar_app, []}},
   {env, [
-    {dynamic_host, true}
+    {dynamic_host, false},
+    {hosts, ['localhost:8000']}
   ]}
  ]}.
