@@ -3,7 +3,11 @@ var PulsarAPI = (function() {
         return new Function('return ' + expr, 'a', 'b','c','d');
     }
     var eventsources = {};
+    var pulsar_host = '';
     return {
+        set_pulsar_server: function(host) {
+            var pulsar_host = host;
+        },
         list_hosts: function(callback) {
             $.getJSON('/site/list', callback);
         },
@@ -28,7 +32,7 @@ var PulsarAPI = (function() {
             if(eventsources[host] !== undefined) {
                 eventsources[host].close();
             }
-            var url = '/site/watch?host='+host+'&key='+key;
+            var url = pulsar_host + '/site/watch?host='+host+'&key='+key;
             var es = eventsources[host] = new EventSource(url);
             es.addEventListener(key, function(event) {
                 callback(JSON.parse(event.data));
