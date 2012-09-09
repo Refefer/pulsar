@@ -41,9 +41,16 @@ init(Args) ->
             {[<<"site">>, command], p_http_site_handler, []}
         ]}
     ],
+    case application:get_env(pulsar, port) of
+        undefined ->
+            Port = 8080;
+        {ok, Port} ->
+            ok
+    end,
+
     %% Name, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts
     Pid = cowboy:start_listener(?SERVER, 150,
-        cowboy_tcp_transport, [{port, 8080}],
+        cowboy_tcp_transport, [{port, Port}],
         cowboy_http_protocol, [{dispatch, Dispatch}]
     ),
 
