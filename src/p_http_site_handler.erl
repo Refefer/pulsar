@@ -73,9 +73,6 @@ ret(Code, Req, State, Msg) ->
     {ok, Req2} = cowboy_http_req:reply(Code, [], [Msg], Req),
     {ok, Req2, State}.
             
-build_data(Table) ->
-    build_data(Table, <<"url">>).
-
 build_data(Table, Type) ->
     {ok, Matches} = json:encode(ets:match(Table, {{Type, '$1'}, '$2'})),
     [<<"data:">>, Matches, <<"\n">>].

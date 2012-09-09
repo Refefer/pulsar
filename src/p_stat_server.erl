@@ -41,11 +41,11 @@ delete_site(Site) ->
     end).
 
 list_sites() ->
-    Sites = lists:filter(fun(Args) -> 
-        case Args of
-            {?MODULE, site, Site} ->
+    Sites = lists:filter(fun(Group) -> 
+        case Group of
+            {?MODULE, site, _Site} ->
                 true;
-            Args ->
+            Group ->
                 false
         end
     end, pg2:which_groups()),
