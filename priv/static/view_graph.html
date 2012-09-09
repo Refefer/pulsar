@@ -32,8 +32,15 @@ $(function() {
     var chart = new Highcharts.Chart({
         chart: {
             renderTo: 'graph',
-            type: 'line',
+            type: 'spline',
             marginRight: 10,
+        },
+        plotOptions: {
+            series: {
+                marker: {
+                    enabled: false
+                }
+            }
         },
         title: {
             text: hashdata.title || 'Current Traffic'
@@ -68,14 +75,14 @@ $(function() {
         series: []
     });
     
-    function add_series(name) {
+    function add_series(name, init_value) {
         chart.addSeries({
             name: name,
             data: (function() {
                 var time = new Date().getTime();
                 var data = [];
                 for(var i = 0; i < 100; i++) {
-                    data.push({x: (time - (i * 5000)), y: 0});
+                    data.push({x: (time - (i * 5000)), y: init_value});
                 }
                 return data.reverse();
             })()
@@ -84,16 +91,28 @@ $(function() {
     }
 
     var all_series = {};
+    // The magic, simple, Pulsar Api
     PulsarAPI.watch_key(hashdata.host, hashdata.key, function(data) {
+        // Keep time consistent for all series.
         var time = new Date().getTime();
-        console.log(JSON.stringify(data));
+
+        // We want to sort series by name so when they are added, they look
+        // more readable in the key.
+        data = data.sort(function(a, b) {
+            if(a[0] < b[0]) {
+                return -1;
+            } else if(a[0] > b[0]) {
+                return 1
+            }
+            return 0;
+        });
         var seen_series = {};
         for(var i = 0; i < data.length; i++) {
             var name = ""+data[i][0];
             var counter = data[i][1];
             var series = all_series[name];
             if(series === undefined) {
-                series = all_series[name] = add_series(name);
+                series = all_series[name] = add_series(name,counter);
             }
             series.addPoint([time, counter], true, true);
             seen_series[name] = 1;
@@ -102,7 +121,8 @@ $(function() {
         // All the others got big 0-fers
         for(name in all_series) {
             if(seen_series[name] === undefined) {
-                // Check if it's all zero and remove it is
+                // Check if it's all zero and remove it is.  Poor man's
+                // Garbage Collection
                 var series = all_series[name];
                 var all_zero = true;
                 for(var i = 0; i < series.data.length; i++) {

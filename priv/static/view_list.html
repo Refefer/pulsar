@@ -45,7 +45,11 @@ $(function() {
         // Clear out old data
         var $source = $('#source');
         $source.children().remove();
-        for(var i = 0; i < sorted.length; i++) {
+
+        // Figure out how many we want to show
+        var max = hashdata.maxitems === undefined ? sorted.length : hashdata.maxitems;
+        max = max <= sorted.length ? max : sorted.length;
+        for(var i = 0; i < max; i++) {
             var item = sorted[i];
             var $child = $('<li>' + item[0] + ': ' + item[1] + '</li>');
             $child.attr('data-id', item[0]);
