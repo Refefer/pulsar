@@ -2,6 +2,7 @@
 <head>
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
 <script type="text/javascript" src="/static/js/jquery.quicksand.js"></script>
+<script type="text/javascript" src="/static/js/md5-min.js"></script>
 <script type="text/javascript" src="/static/js/pulsar_api.js"></script>
 <script type="text/javascript" src="/static/js/pulsar.utils.js"></script>
 <style>
@@ -17,13 +18,23 @@ html,body {
     display: block;
     list-style-type: none;
     overflow: hidden;
+    margin-left: 0;
+    padding-left: 0;
 }
 
 .destination li {
-    border: 1px solid blue;
+    border-bottom: 1px solid gray;
     display: block;
-    float: left;
     margin: 3px;
+}
+
+.desitnation li:last-child {
+    border-bottom: none;
+}
+
+.float {
+    border: 1px solid gray;
+    float:left;  
 }
 </style>
 <script type="text/javascript">
@@ -34,6 +45,9 @@ $(function() {
         height: hashdata.height || window.innerHeight
     });
     PulsarAPI.watch_key(hashdata.host, hashdata.key, function(data) {
+        if(hashdata.log && console && console.log) {
+            console.log(JSON.stringify(data));
+        }
         var sorted = data.sort(function(a,b) {
             if(a[1] < b[1]) {
                 return 1;
@@ -52,7 +66,10 @@ $(function() {
         for(var i = 0; i < max; i++) {
             var item = sorted[i];
             var $child = $('<li>' + item[0] + ': ' + item[1] + '</li>');
-            $child.attr('data-id', item[0]);
+            if(hashdata.float) {
+                $child.addClass('float');
+            }
+            $child.attr('data-id', hex_md5(item[0]));
             $source.append($child[0]);
         }
         $('#destination').quicksand('#source li');

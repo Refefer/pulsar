@@ -22,7 +22,6 @@ $(function() {
         height: hashdata.height || window.innerHeight
     });
     
-
     Highcharts.setOptions({
         global: {
             useUTC: false
@@ -75,22 +74,68 @@ $(function() {
         series: []
     });
     
-    function add_series(name, init_value) {
+    function add_series(time, name, init_value) {
         chart.addSeries({
             name: name,
             data: (function() {
-                var time = new Date().getTime();
                 var data = [];
-                for(var i = 0; i < 100; i++) {
+                for(var i = 0; i < (hashdata.points||100); i++) {
                     data.push({x: (time - (i * 5000)), y: init_value});
                 }
                 return data.reverse();
             })()
-        });
+        }, false);
         return chart.series[chart.series.length-1];
     }
 
     var all_series = {};
+    var count = 0;
+    var filter_data = (function() {
+        var filter = (function(filtered) {
+            if(filtered === undefined) return filtered;
+            if(typeof filtered === "string") return {filtered:1};
+            var f = {};
+            for(var i = 0; i < filtered.length; i++) {
+                f[filtered[i]] = 1;
+            }
+            return f;
+        })(hashdata.filter);
+
+        // Filter function
+        return function(data) {
+            // Filter out those only names we care about
+            if(filter !== undefined) {
+                var new_data = [];
+                for(var i = 0; i < data.length; i++) {
+                    if(filter[data[i][0]]) {
+                        new_data.push(data[i]);
+                    }
+                }
+                data = new_data;
+            }
+            return data;
+        }
+    })();
+    
+    function normalize_data(data) {
+        if(!hashdata.normalize) return data;
+
+        data = data.slice();
+
+        // Count up everything
+        var total = 0;
+        for(var i = 0; i < data.length; i++) {
+            total += data[i][1];
+        }
+
+        // Normalize 
+        for(var i = 0; i < data.length; i++) {
+            data[i][1] = Math.round(100 * (data[i][1]/total));
+        }
+
+        return data;
+    }
+
     // The magic, simple, Pulsar Api
     PulsarAPI.watch_key(hashdata.host, hashdata.key, function(data) {
         // Keep time consistent for all series.
@@ -106,17 +151,24 @@ $(function() {
             }
             return 0;
         });
+
+        data = filter_data(data);
+
+        data = normalize_data(data);
+        
         var seen_series = {};
         for(var i = 0; i < data.length; i++) {
             var name = ""+data[i][0];
             var counter = data[i][1];
             var series = all_series[name];
-            if(series === undefined) {
-                series = all_series[name] = add_series(name,counter);
+            if(series === undefined ) {
+                series = all_series[name] = add_series(time, name, counter);
+            } else {
+                series.addPoint([time, counter], false, true);
             }
-            series.addPoint([time, counter], true, true);
             seen_series[name] = 1;
         }
+
 
         // All the others got big 0-fers
         for(name in all_series) {
@@ -127,18 +179,22 @@ $(function() {
                 var all_zero = true;
                 for(var i = 0; i < series.data.length; i++) {
                     if(series.data[i].y > 0) {
-                        series.addPoint([time, 0], true, true);        
                         all_zero = false;
                         break;
                     }
                 }
                 if(all_zero) {
-                    series.remove();
+                    series.remove(false);
+                    delete all_series[name];
+                } else {
+                    series.addPoint([time, 0], false, true);        
                 }
                 
             }
         }
 
+        // Redraw
+        chart.redraw();
     });
     
 });
