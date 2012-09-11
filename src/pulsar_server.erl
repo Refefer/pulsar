@@ -27,12 +27,18 @@ start_link() ->
 %% ------------------------------------------------------------------
 
 init(Args) ->
+    case application:get_env(pulsar, static_dir) of
+        undefined ->
+            Static = <<"./priv/static">>;
+        {ok, RawStatic} ->
+            Static = erlang:list_to_binary(RawStatic)
+    end,
     Dispatch = [
         %% {Host, list({Path, Handler, Opts})}
         {'_', [
             {[<<"tick">>, host], p_http_tick_handler, []},
             {[<<"static">>, '...'], cowboy_http_static, 
-                [{directory, <<"./priv/static">>},
+                [{directory, Static},
                      {mimetypes, [
                         {<<".html">>, [<<"text/html">>]},
                         {<<".js">>, [<<"application/javascript">>]}
