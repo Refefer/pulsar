@@ -1,0 +1,101 @@
+<html>
+<head>
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+<script type="text/javascript" src="/static/js/highcharts.js"></script>
+<script type="text/javascript" src="/static/js/pulsar_api.js"></script>
+<script type="text/javascript" src="/static/js/pulsar.utils.js"></script>
+<style>
+html,body {
+    margin: 0;
+    padding: 0;
+}
+#source {
+    display: none;
+}
+
+.destination {
+    display: block;
+    list-style-type: none;
+    overflow: hidden;
+    margin-left: 0;
+    padding-left: 0;
+}
+
+.destination li {
+    border-bottom: 1px solid gray;
+    display: block;
+    margin: 3px;
+}
+
+.desitnation li:last-child {
+    border-bottom: none;
+}
+
+.float {
+    border: 1px solid gray;
+    float:left;  
+}
+</style>
+<script type="text/javascript">
+$(function() {
+    // Get the data from the url
+    var hashdata = PulsarUtils.data_from_hash();
+     $('#graph').css({
+        height: hashdata.height || window.innerHeight
+    });
+
+    // Build the chart
+    var chart = new Highcharts.Chart({
+        chart: {
+            renderTo: 'graph',
+            plotBackgroundColor: null,
+            plotBorderWidth: null,
+            plotShadow: false
+        },
+        title: {
+            text: hashdata.title || null
+        },
+        tooltip: {
+            pointFormat: '{series.name}: <b>{point.percentage}%</b>',
+            percentageDecimals: 1
+        },
+        plotOptions: {
+            pie: {
+                allowPointSelect: true,
+                cursor: 'pointer',
+                dataLabels: {
+                    enabled: true,
+                    color: '#000000',
+                    connectorColor: '#000000',
+                    formatter: function() {
+                        return '<b>'+ this.point.name +'</b>: '+ Math.round(this.percentage) +' %';
+                    }
+                }
+            }
+        },
+        series: [{
+            type: 'pie',
+            name: 'Default',
+            data: []
+        }]
+    });
+
+    window.chart = chart;
+
+    PulsarAPI.watch_key(hashdata.host, hashdata.key, function(data) {
+        if(hashdata.log && console && console.log) {
+            console.log(JSON.stringify(data));
+        }
+        
+        // Normalize it
+        chart.series[0].setData(PulsarUtils.sort_data(data));
+        chart.redraw();
+    });
+    
+});
+</script>
+</head>
+<body>
+<div id="graph"></div>
+</body>
+</html>
