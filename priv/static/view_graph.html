@@ -18,6 +18,10 @@ $(function() {
     // Get the data from the url
     var hashdata = PulsarUtils.data_from_hash();
     hashdata.points = hashdata.points || 100;
+    hashdata.show_threshold = parseFloat(hashdata.show_threshold) || 0;
+    hashdata.gc_threshold = parseFloat(hashdata.gc_threshold) || 1;
+    hashdata.low_watermark = parseFloat(hashdata.low_watermark) || 1;
+    hashdata.running_tally = hashdata.running_tally === '1';
     
     $('#graph').css({
         height: hashdata.height || window.innerHeight
@@ -67,7 +71,7 @@ $(function() {
             }
         },
         legend: {
-            enabled: true
+            enabled: hashdata.disable_legend != "1"
         },
         exporting: {
             enabled: false
@@ -77,33 +81,69 @@ $(function() {
     
     function add_series(time, name, init_value) {
         chart.addSeries({
+            id: name,
             name: name,
-            data: (function() {
-                var data = [];
-                for(var i = 0; i < hashdata.points; i++) {
-                    data.push({x: (time - (i * 5000)), y: 0});
-                }
-                data[0].y = init_value;
-                return data.reverse();
-            })()
-        }, false);
-        return chart.series[chart.series.length-1];
+            data: []}, false);
+
+        var series =  chart.series[chart.series.length-1];
+        // We have to set the data out here, otherwise it won't be on the series
+        // object.  Bug?
+        series.setData((function() {
+            var data  = [];
+            for(var i = 0; i < hashdata.points; i++) {
+                data.push({x: (time - (i * 5000)), y: 0});
+            }
+            data[0].y = init_value;
+            return data.reverse();
+        })(), false);
+        series.raw_data = [init_value];
+        series.shown = true;
+        return series;
     }
 
-    var all_series = {};
+    window.all_series = {};
     var filter_data = PulsarUtils.build_key_filter(hashdata.filter);
+
+    function data_to_set(data) {
+        var set = {};
+        for(var i = 0 ; i < data.length; i++) {
+            set[data[i][0]] = 1;
+        }
+        return set;
+    }
+
+    // Add zeros for all data that is missing.
+    function fill_missing_data(data) {
+        var has_data = data_to_set(data);
+        var new_data = data.slice();
+
+        for(var name in all_series) {
+            if(!has_data[name]) {
+                new_data.push([name, 0]);
+            }
+        }
+        return new_data;
+    }
+
+    function filter_low_watermark(data) {
+        var new_data = [];
+        for(var i = 0; i < data.length; i++) {
+            if(data[i][1] >= hashdata.low_watermark) {
+                new_data.push(data[i]);
+            }
+        }
+        return new_data;
+    }
 
     // If we running_tally set, we aggregate over the entire data series.
     function calc_running_tally(data) {
         var new_data = [];
         for(var i = 0; i < data.length; i++) {
             var point = data[i];
-            var series = all_series[point[0]];
-            if(series !== undefined) {
+            //var series = all_series[point[0]];
+            var series = chart.get(point[0]);
+            if(series) {
                 var series_data = series.raw_data;
-                if(series_data === undefined) {
-                    series_data = series.raw_data = [];
-                }
                 series_data.push(point[1]);
                 while(series_data.length > hashdata.points) {
                     series_data.shift();
@@ -114,10 +154,40 @@ $(function() {
                     total += series_data[j];
                 }
                 point = [point[0], total];
-            }
+            } 
             new_data.push(point);
         }
         return new_data;
+    }
+
+    function get_last_N_points(series, N) {
+        var points = [];
+        if(hashdata.running_tally) {
+            var data = series.raw_data;
+            for(var i = 0; i < N && i < data.length; i++) {
+                points.push(data[data.length - i - 1]);
+            }
+        } else {
+            var data = series.data;
+            for(var i = 0; i < N && i < data.length; i++) {
+                points.push(data[data.length - i - 1].y);
+            }
+        }
+        return points;
+    }
+
+    function should_remove_series(series) {
+        var to_check = hashdata.gc_after === undefined ? 
+            hashdata.points : hashdata.gc_after;
+
+        var data = get_last_N_points(series, to_check);
+        if(data.length < to_check) return false;
+        for(var i = 0; i < data.length; i++) {
+            if(data[i] >= hashdata.gc_threshold) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // The magic, simple, Pulsar Api
@@ -136,8 +206,12 @@ $(function() {
             return 0;
         });
 
-
         data = filter_data(data);
+
+        // Filter out data lower than the low watermark
+        data = filter_low_watermark(data);
+
+        data = fill_missing_data(data);
 
         if(hashdata.running_tally) {
             data = calc_running_tally(data);
@@ -147,41 +221,41 @@ $(function() {
             data = PulsarUtils.data_to_percent(data, 2);
         }
         
-        var seen_series = {};
         for(var i = 0; i < data.length; i++) {
             var name = ""+data[i][0];
             var counter = data[i][1];
-            var series = all_series[name];
-            if(series === undefined ) {
+            //var series = all_series[name];
+            var series = chart.get(name);
+            if(series === null) {
                 series = all_series[name] = add_series(time, name, counter);
             } else {
                 series.addPoint([time, counter], false, true);
             }
-            seen_series[name] = 1;
+            // Hide graphs that fall below the desired threshold
+            if(counter < hashdata.show_threshold) {
+                if(series.shown){
+                    series.hide();
+                    series.shown = false;
+                }
+            } else {
+                if(!series.shown) {
+                    series.show();
+                    series.shown = true;
+                }
+            }
+
         }
 
-
-        // All the others got big 0-fers
         for(name in all_series) {
-            if(seen_series[name] === undefined) {
-                // Check if it's all zero and remove it is.  Poor man's
-                // Garbage Collection
-                var series = all_series[name];
-                var all_zero = true;
-                for(var i = 0; i < series.data.length; i++) {
-                    if(series.data[i].y > 0) {
-                        all_zero = false;
-                        break;
-                    }
-                }
-                if(all_zero) {
-                    series.remove(false);
-                    delete all_series[name];
-                } else {
-                    series.addPoint([time, 0], false, true);        
-                }
-                
-            }
+            var series = chart.get(name);
+
+            // Check if it's all zero and remove it is.  Poor man's
+            // Garbage Collection
+            //var series = all_series[name];
+            if(should_remove_series(series)) {
+                series.remove(false);
+                delete all_series[name];
+            } 
         }
 
         // Redraw
