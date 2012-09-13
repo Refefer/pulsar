@@ -17,6 +17,7 @@ html,body {
 $(function() {
     // Get the data from the url
     var hashdata = PulsarUtils.data_from_hash();
+    hashdata.points = hashdata.points || 100;
     
     $('#graph').css({
         height: hashdata.height || window.innerHeight
@@ -79,9 +80,10 @@ $(function() {
             name: name,
             data: (function() {
                 var data = [];
-                for(var i = 0; i < (hashdata.points||100); i++) {
-                    data.push({x: (time - (i * 5000)), y: init_value});
+                for(var i = 0; i < hashdata.points; i++) {
+                    data.push({x: (time - (i * 5000)), y: 0});
                 }
+                data[0].y = init_value;
                 return data.reverse();
             })()
         }, false);
@@ -89,51 +91,33 @@ $(function() {
     }
 
     var all_series = {};
-    var count = 0;
-    var filter_data = (function() {
-        var filter = (function(filtered) {
-            if(filtered === undefined) return filtered;
-            if(typeof filtered === "string") return {filtered:1};
-            var f = {};
-            for(var i = 0; i < filtered.length; i++) {
-                f[filtered[i]] = 1;
-            }
-            return f;
-        })(hashdata.filter);
+    var filter_data = PulsarUtils.build_key_filter(hashdata.filter);
 
-        // Filter function
-        return function(data) {
-            // Filter out those only names we care about
-            if(filter !== undefined) {
-                var new_data = [];
-                for(var i = 0; i < data.length; i++) {
-                    if(filter[data[i][0]]) {
-                        new_data.push(data[i]);
-                    }
+    // If we running_tally set, we aggregate over the entire data series.
+    function calc_running_tally(data) {
+        var new_data = [];
+        for(var i = 0; i < data.length; i++) {
+            var point = data[i];
+            var series = all_series[point[0]];
+            if(series !== undefined) {
+                var series_data = series.raw_data;
+                if(series_data === undefined) {
+                    series_data = series.raw_data = [];
                 }
-                data = new_data;
+                series_data.push(point[1]);
+                while(series_data.length > hashdata.points) {
+                    series_data.shift();
+                }
+                // Sum up the series
+                var total = 0;
+                for(var j = 0; j < series_data.length; j++) {
+                    total += series_data[j];
+                }
+                point = [point[0], total];
             }
-            return data;
+            new_data.push(point);
         }
-    })();
-    
-    function normalize_data(data) {
-        if(!hashdata.normalize) return data;
-
-        data = data.slice();
-
-        // Count up everything
-        var total = 0;
-        for(var i = 0; i < data.length; i++) {
-            total += data[i][1];
-        }
-
-        // Normalize 
-        for(var i = 0; i < data.length; i++) {
-            data[i][1] = Math.round(100 * (data[i][1]/total));
-        }
-
-        return data;
+        return new_data;
     }
 
     // The magic, simple, Pulsar Api
@@ -152,9 +136,16 @@ $(function() {
             return 0;
         });
 
+
         data = filter_data(data);
 
-        data = normalize_data(data);
+        if(hashdata.running_tally) {
+            data = calc_running_tally(data);
+        }
+
+        if(hashdata.normalize) {
+            data = PulsarUtils.data_to_percent(data, 2);
+        }
         
         var seen_series = {};
         for(var i = 0; i < data.length; i++) {

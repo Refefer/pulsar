@@ -34,6 +34,35 @@ var PulsarUtils = (function() {
             });           
         },
 
+        build_key_filter: function(keys) {
+            keys = (function(keys) {
+                if(keys === undefined) return keys;
+                if(typeof keys === "string") {
+                    keys = [keys];
+                }
+                var f = {};
+                for(var i = 0; i < keys.length; i++) {
+                    f[keys[i]] = 1;
+                }
+                return f;
+            })(keys);
+
+            // Filter function
+            return function(data) {
+                // Filter out those only names we care about
+                if(keys !== undefined) {
+                    var new_data = [];
+                    for(var i = 0; i < data.length; i++) {
+                        if(keys[data[i][0]]) {
+                            new_data.push(data[i]);
+                        }
+                    }
+                    data = new_data;
+                }
+                return data;
+            }
+        },
+
         data_to_percent: function(data, places) {
             places = typeof places  === "integer" ? places : 2;
 
