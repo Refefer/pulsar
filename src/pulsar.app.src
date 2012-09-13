@@ -1,4 +1,4 @@
-{appiecatine, pulsar,
+{application, pulsar,
  [
   {description, "Real-time web analytics server."},
   {vsn, "0.1"},
