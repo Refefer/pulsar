@@ -17,11 +17,20 @@ html,body {
 $(function() {
     // Get the data from the url
     var hashdata = PulsarUtils.data_from_hash();
-    hashdata.points = hashdata.points || 100;
+    // Number of data points to show (each representing 5 seconds);
+    hashdata.points = hashdata.points || 90;
+    // The minimum value required to render the series.
     hashdata.show_threshold = parseFloat(hashdata.show_threshold) || 0;
+    // The minimum value required for a series not to be pruned
     hashdata.gc_threshold = parseFloat(hashdata.gc_threshold) || 1;
+    // The minimum value required for data point to be plotted
     hashdata.low_watermark = parseFloat(hashdata.low_watermark) || 1;
-    hashdata.running_tally = hashdata.running_tally === '1';
+    // The number of values to consider for the point plot value
+    hashdata.running_tally = hashdata.running_tally === undefined ? undefined : parseInt(hashdata.running_tally);
+    // Averages the total tally by the number tallied.
+    hashdata.average_tally = hashdata.average_tally !== undefined; 
+    // Set a fixed minimum y value.
+    hashdata.min_y = hashdata.min_y === undefined ? null : parseInt(hashdata.min_y);
     
     $('#graph').css({
         height: hashdata.height || window.innerHeight
@@ -61,7 +70,8 @@ $(function() {
                 value: 0,
                 width: 1,
                 color: '#808080'
-            }]
+            }],
+            min: hashdata.min_y,
         },
         tooltip: {
             formatter: function() {
@@ -102,7 +112,25 @@ $(function() {
     }
 
     window.all_series = {};
-    var filter_data = PulsarUtils.build_key_filter(hashdata.filter);
+
+    var filter_in = PulsarUtils.build_key_filter(hashdata.filter);
+    
+    var filter_out = (function() {
+        if(hashdata.filter_out !== undefined) {
+            hashdata.filter_out = typeof hashdata.filter_out  === 'string' ? 
+                [hashdata.filter_out] : hashdata.filter_out;
+
+            return data_to_set(hashdata.filter_out.map(function(d){return [d]}));
+        }
+        return {};
+    })();
+
+    function filter_data(data) {
+        var new_data = filter_in(data);
+        return new_data.filter(function(d) {
+            return filter_out[d[0]] === undefined;
+        });
+    }
 
     function data_to_set(data) {
         var set = {};
@@ -153,6 +181,10 @@ $(function() {
                 for(var j = 0; j < series_data.length; j++) {
                     total += series_data[j];
                 }
+                if(hashdata.average_tally) {
+                    total = total/series_data.length;
+                }
+
                 point = [point[0], total];
             } 
             new_data.push(point);
@@ -218,7 +250,7 @@ $(function() {
         }
 
         if(hashdata.normalize) {
-            data = PulsarUtils.data_to_percent(data, 2);
+            data = PulsarUtils.data_to_percent(data, 4);
         }
         
         for(var i = 0; i < data.length; i++) {
