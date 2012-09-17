@@ -41,6 +41,7 @@ info(start, Req=#http_req{socket=Socket}, State) ->
         {ok, Server} ->
             % We want this process to die if the server is dead.
             erlang:link(Server),
+            p_lstat_server:add_metrics(Server, Metrics),
             {loop, Req2, #state{site=Site, metrics=Metrics, lstat_server=Server}, hibernate};
         {error, not_defined} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"">>, Req2),
@@ -60,4 +61,5 @@ terminate(Req, undefined_state) ->
     ok;
 terminate(Req, #state{site=Site, metrics=Metrics, lstat_server=Server}) ->
     % Add metric removal.
+    p_lstat_server:remove_metrics(Server, Metrics),
     ok.

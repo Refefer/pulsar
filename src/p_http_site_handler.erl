@@ -88,20 +88,32 @@ ret(Code, Req, State, Msg) ->
     {ok, Req2} = cowboy_http_req:reply(Code, [], [Msg], Req),
     {ok, Req2, State}.
             
-build_data(Table, Type) ->
-    {ok, Matches} = json:encode(ets:match(Table, {{Type, '$1'}, '$2'})),
+build_data(PServer, TTable, Key) ->
+    % From Temp table
+    Dict1 = dict:from_list(lists:map(fun([K,V]) ->
+        {K, V}
+    end, ets:match(TTable, {{Key, '$1'}, '$2'}))),
+
+    % From perm table
+    Dict2 = p_lstat_server:get_key(PServer, Key),
+
+    % Merge them
+    Dict3 = dict:merge(fun(K1, V1, V2) ->
+        V1 + V2
+    end,Dict1, Dict2),
+    {ok, Matches} = json:encode(dict:to_list(Dict3)),
     [<<"data:">>, Matches, <<"\n">>].
 
-send_all_data(_Table, _Req, _Time, []) ->
+send_all_data(_PServer, _Table, _Req, _Time, []) ->
     ok;
-send_all_data(Table, Req, Time, [Key|Rest]) ->
+send_all_data(PServer, TTable, Req, Time, [Key|Rest]) ->
     Event = [<<"event: ">>, Key, <<"\n">>,
              <<"time: ">>, Time, <<"\n">>,
-             build_data(Table, Key), 
+             build_data(PServer, TTable, Key), 
              <<"\n">>],
     case cowboy_http_req:chunk(Event, Req) of
         ok -> 
-            send_all_data(Table, Req, Time, Rest);
+            send_all_data(PServer, TTable, Req, Time, Rest);
         {error, closed} ->
             % We are done here!
             closed
@@ -110,7 +122,14 @@ send_all_data(Table, Req, Time, [Key|Rest]) ->
 watch_loop(Req, State={site, Site, Keys}) ->
     receive
         {p_stat_server, {stats, Time, Table}} ->
-            case send_all_data(Table, Req, Time, Keys) of
+            PollServer = case p_lstat_server:get_site(Site) of
+                {ok, Server} ->
+                    Server;
+                {error, _Reason} ->
+                    undfeind
+            end,
+
+            case send_all_data(PollServer, Table, Req, Time, Keys) of
                 ok ->
                     watch_loop(Req, State);
                 closed ->

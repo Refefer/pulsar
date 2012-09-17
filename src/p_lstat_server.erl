@@ -21,7 +21,12 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, add_site/1, get_site/1]).
+-export([start_link/1,
+        add_site/1,
+        get_site/1,
+        add_metrics/2,
+        remove_metrics/2,
+        get_key/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -56,16 +61,33 @@ add_metrics(Site, Metrics) ->
 
 remove_metrics(Site, Metrics) ->
     gen_server:cast(Site, {remove, Metrics}).
+
+get_key(Site, Key) ->
+    Table = gen_server:call(Site, {get_table}),
+    dict:from_list(lists:map(fun([K,V]) ->
+        {K, V}
+    end, ets:match(Table, {{Key, '$1'}, '$2'}))).
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
 init([{site, Site}]) ->
     register_site(Site, self()),
-    {ok, #state{site=Site,table=ets:new(?MODULE, [])}}.
+    Table = ets:new(?MODULE, [{read_concurrency, true}]),
+    {ok, #state{site=Site,table=Table}}.
 
+handle_call({get_table}, _From, State =#state{table=Table}) ->
+    {reply, Table, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
+
+handle_cast({add, Metrics}, State = #state{table=Table}) ->
+    add_records(Table, Metrics),
+    {noreply, State};
+
+handle_cast({remove, Metrics}, State = #state{table=Table}) ->
+    remove_records(Table, Metrics),
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
