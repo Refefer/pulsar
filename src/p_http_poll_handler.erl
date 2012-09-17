@@ -15,13 +15,13 @@
 -module(p_http_poll_handler).
 -export([init/3, info/3, terminate/2]).
 
-% Included so we can cache qs, since that can be quite expensive.
+% Included so we can get the socket.
 -include("deps/cowboy/include/http.hrl").
 
 -record(state, {
     site :: binary(),
     metrics :: list(),
-    link_server :: pid()
+    lstat_server :: pid()
 }).
 
 init({tcp, http}, Req, _Opts) ->
@@ -36,29 +36,31 @@ info({reply, Body}, Req, State) ->
 % We want to quite the second we get a message about the socket
 % closing, so we have to set the socket to active.
 info(start, Req=#http_req{socket=Socket}, State) ->
-    inet:setopts(Socket, [{active, true}]),
+    inet:setopts(Socket, [{active, once}]),
     {Site, Metrics, Req2} = p_http_utils:parse_request(Req),
-    case p_link_server:get_site(Site) of
+    case p_lstat_server:get_site(Site) of
         {ok, Server} ->
             io:format("Adding metrics~n", []),
             % We want this process to die if the server is dead.
             erlang:link(Server),
-            {loop, Req2, #state{site=Site, metrics=Metrics, link_server=Server}, hibernate};
+            {loop, Req2, #state{site=Site, metrics=Metrics, lstat_server=Server}, hibernate};
         {error, not_defined} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"">>, Req2),
             {ok, FinalReq, State}
     end;
-% Immediately close.
+
+% Client closed the connection, time to move along.
 info({tcp_closed, _Port}, Req, State) ->
     {ok, Req, State};
 
 % Probably should rogue messages.
-info(_Message, Req, State) ->
+info(_Message, Req=#http_req{socket=Socket}, State) ->
+    inet:setopts(Socket, [{active, once}]),
     {loop, Req, State, hibernate}.
 
 terminate(Req, undefined_state) ->
     ok;
-terminate(Req, #state{site=Site, metrics=Metrics, link_server=Server}) ->
+terminate(Req, #state{site=Site, metrics=Metrics, lstat_server=Server}) ->
     io:format("Removing metrics~n", []),
     % Add metric removal.
     ok.

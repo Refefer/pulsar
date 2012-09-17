@@ -48,11 +48,12 @@ init(Args) ->
         {ok, RawStatic} ->
             Static = erlang:list_to_binary(RawStatic)
     end,
+
     Dispatch = [
         %% {Host, list({Path, Handler, Opts})}
         {'_', [
             {[<<"tick">>, host], p_http_tick_handler, []},
-            {[<<"poll">>, host], p_http_link_handler, []},
+            {[<<"poll">>, host], p_http_poll_handler, []},
             {[<<"static">>, '...'], cowboy_http_static, 
                 [{directory, Static},
                      {mimetypes, [
@@ -63,6 +64,7 @@ init(Args) ->
             {[<<"site">>, command], p_http_site_handler, []}
         ]}
     ],
+
     case application:get_env(pulsar, port) of
         undefined ->
             Port = 8080;
@@ -82,7 +84,8 @@ init(Args) ->
             ok;
         {ok, Hosts} ->
             lists:foreach(fun(Site) ->
-                p_stat_server:add_site(erlang:atom_to_binary(Site, latin1))
+                p_stat_server:add_site(erlang:atom_to_binary(Site, latin1)),
+                p_lstat_server:add_site(erlang:atom_to_binary(Site, latin1))
             end, Hosts)
     end,
 

@@ -1,5 +1,4 @@
-
--module(p_lpoll_server_sup).
+-module(p_lstat_server_sup).
 
 -behaviour(supervisor).
 
@@ -24,6 +23,6 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    Server = ?CHILD(p_lpoll_server, worker),
+    Server = ?CHILD(p_lstat_server, worker),
     {ok, { { simple_one_for_one, 5, 10}, [Server]} }.
 

@@ -1,4 +1,4 @@
--module(p_lpoll_server).
+-module(p_lstat_server).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
 
@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, add_site/1, get_site/1]).
+-export([start_link/1, add_site/1, get_site/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -15,12 +15,14 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-record(state, {site}).
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(Args) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Args], []).
 
 add_site(Site) ->
     case get_site_server(Site) of
@@ -28,7 +30,7 @@ add_site(Site) ->
             {ok, Pid};
         {error, not_defined} ->
             pg2:create({?MODULE, site, Site}),
-            supervisor:start_child(p_lpoll_server_sup, [{site, Site}])
+            supervisor:start_child(p_lstat_server_sup, [{site, Site}])
     end.
 
 get_site(Site) ->
@@ -38,8 +40,9 @@ get_site(Site) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init(Args) ->
-    {ok, Args}.
+init([{site, Site}]) ->
+    register_site(Site, self()),
+    {ok, #state{site=Site}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -69,3 +72,5 @@ get_site_server(Name) ->
             {error, not_defined}
     end.
 
+register_site(Site, Pid) ->
+    pg2:join({?MODULE, site, Site}, Pid).
