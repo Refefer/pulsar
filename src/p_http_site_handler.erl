@@ -101,7 +101,8 @@ build_data(PServer, TTable, Key) ->
     Dict3 = dict:merge(fun(K1, V1, V2) ->
         V1 + V2
     end,Dict1, Dict2),
-    {ok, Matches} = json:encode(dict:to_list(Dict3)),
+    KVList = lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict3)),
+    {ok, Matches} = json:encode(KVList),
     [<<"data:">>, Matches, <<"\n">>].
 
 send_all_data(_PServer, _Table, _Req, _Time, []) ->
@@ -125,8 +126,8 @@ watch_loop(Req, State={site, Site, Keys}) ->
             PollServer = case p_lstat_server:get_site(Site) of
                 {ok, Server} ->
                     Server;
-                {error, _Reason} ->
-                    undfeind
+                {error, Reason} ->
+                    Reason
             end,
 
             case send_all_data(PollServer, Table, Req, Time, Keys) of

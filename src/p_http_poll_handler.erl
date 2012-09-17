@@ -32,14 +32,14 @@ info({reply, Body}, Req, State) ->
     {ok, Req2} = cowboy_http_req:reply(200, [], Body, Req),
     {ok, Req2, State};
 
-% We want to quite the second we get a message about the socket
+% We want to quit the second we get a message about the socket
 % closing, so we have to set the socket to active.
 info(start, Req=#http_req{socket=Socket}, State) ->
-    inet:setopts(Socket, [{active, once}]),
     {Site, Metrics, Req2} = p_http_utils:parse_request(Req),
     case p_lstat_server:get_site(Site) of
         {ok, Server} ->
             % We want this process to die if the server is dead.
+            inet:setopts(Socket, [{active, once}]),
             erlang:link(Server),
             p_lstat_server:add_metrics(Server, Metrics),
             {loop, Req2, #state{site=Site, metrics=Metrics, lstat_server=Server}, hibernate};
@@ -52,7 +52,7 @@ info(start, Req=#http_req{socket=Socket}, State) ->
 info({tcp_closed, _Port}, Req, State) ->
     {ok, Req, State};
 
-% Probably should rogue messages.
+% Probably should log rogue messages.
 info(_Message, Req=#http_req{socket=Socket}, State) ->
     inet:setopts(Socket, [{active, once}]),
     {loop, Req, State, hibernate}.

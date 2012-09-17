@@ -42,7 +42,7 @@
 %% ------------------------------------------------------------------
 
 start_link(Args) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Args], []).
+    gen_server:start_link(?MODULE, [Args], []).
 
 add_site(Site) ->
     case get_site_server(Site) of
@@ -72,12 +72,14 @@ get_key(Site, Key) ->
 %% ------------------------------------------------------------------
 
 init([{site, Site}]) ->
+    io:format("Starting ~p~n", [Site]),
     register_site(Site, self()),
     Table = ets:new(?MODULE, [{read_concurrency, true}]),
     {ok, #state{site=Site,table=Table}}.
 
 handle_call({get_table}, _From, State =#state{table=Table}) ->
     {reply, Table, State};
+
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -133,15 +135,19 @@ add_records(Table, Metrics) ->
 remove_records(Table, Metrics) ->
     lists:foreach(fun({Metric, Value}) ->
         Key = {Metric, Value},
-        try Value = ets:update_counter(Table, Key, {2, -1})
-        catch
-            error:_Reason ->
-                Value = undefined
-        end,
-        case Value of 
-            0 ->
+        Result = try ets:update_counter(Table, Key, {2, -1})
+            catch
+                error:bad_arg->
+                    % Likely means it doesn't exist.  Return a 1 since
+                    % there's nothing to delete.
+                    1
+            end,
+        % Remove values which are now zero (or less, although that should
+        % never happen.  Maybe terminate the process if it does?)
+        if
+            Result =< 0 ->
                 ets:delete(Table, Key);
-            _Other ->
+            true ->
                 ok
         end
     end, Metrics).
