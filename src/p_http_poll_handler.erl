@@ -25,7 +25,6 @@
 }).
 
 init({tcp, http}, Req, _Opts) ->
-    io:format("Starting~n", []),
     erlang:send_after(0, self(), start),
     {loop, Req, undefined_state}.
 
@@ -40,7 +39,6 @@ info(start, Req=#http_req{socket=Socket}, State) ->
     {Site, Metrics, Req2} = p_http_utils:parse_request(Req),
     case p_lstat_server:get_site(Site) of
         {ok, Server} ->
-            io:format("Adding metrics~n", []),
             % We want this process to die if the server is dead.
             erlang:link(Server),
             {loop, Req2, #state{site=Site, metrics=Metrics, lstat_server=Server}, hibernate};
@@ -61,6 +59,5 @@ info(_Message, Req=#http_req{socket=Socket}, State) ->
 terminate(Req, undefined_state) ->
     ok;
 terminate(Req, #state{site=Site, metrics=Metrics, lstat_server=Server}) ->
-    io:format("Removing metrics~n", []),
     % Add metric removal.
     ok.

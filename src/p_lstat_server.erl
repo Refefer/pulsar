@@ -30,7 +30,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {site}).
+-record(state, {site, table}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -51,13 +51,18 @@ add_site(Site) ->
 get_site(Site) ->
     get_site_server(Site).
 
+add_metrics(Site, Metrics) ->
+    gen_server:cast(Site, {add, Metrics}).
+
+remove_metrics(Site, Metrics) ->
+    gen_server:cast(Site, {remove, Metrics}).
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
 init([{site, Site}]) ->
     register_site(Site, self()),
-    {ok, #state{site=Site}}.
+    {ok, #state{site=Site,table=ets:new(?MODULE, [])}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -89,3 +94,33 @@ get_site_server(Name) ->
 
 register_site(Site, Pid) ->
     pg2:join({?MODULE, site, Site}, Pid).
+
+% Adds a set of metrics to the table
+add_records(Table, Metrics) ->
+    lists:foreach(fun({Metric, Value}) ->
+        Key = {Metric, Value},
+        try ets:update_counter(Table, Key, {2, 1})
+        catch
+            error:_Reason ->
+                ets:insert(Table, {Key, 1})
+        end
+    end, Metrics).
+
+% Removes metrics from the table, deleting ones that are
+% zero or less.
+remove_records(Table, Metrics) ->
+    lists:foreach(fun({Metric, Value}) ->
+        Key = {Metric, Value},
+        try Value = ets:update_counter(Table, Key, {2, -1})
+        catch
+            error:_Reason ->
+                Value = undefined
+        end,
+        case Value of 
+            0 ->
+                ets:delete(Table, Key);
+            _Other ->
+                ok
+        end
+    end, Metrics).
+
