@@ -150,9 +150,10 @@ send_urls(#state{site=Site, table=Table} ) ->
                 % No listeners, nothing to do
                 ok;
             Members ->
-                LocalTime = erlang:localtime(),
+                {Date, Time} = erlang:localtime(),
+                DateTime = io_lib:format("~B-~B-~B ~B:~B:~B", erlang:tuple_to_list(Date) ++ erlang:tuple_to_list(Time)),
                 lists:foreach(fun(Pid) ->
-                    Pid ! {?MODULE, {stats, LocalTime, Table}}
+                    Pid ! {?MODULE, {stats, DateTime, Table}}
                 end, Members),
                 % Sleep one minute before cleaning up.
                 timer:sleep(60000)

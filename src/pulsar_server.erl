@@ -52,6 +52,7 @@ init(Args) ->
         %% {Host, list({Path, Handler, Opts})}
         {'_', [
             {[<<"tick">>, host], p_http_tick_handler, []},
+            {[<<"poll">>, host], p_http_link_handler, []},
             {[<<"static">>, '...'], cowboy_http_static, 
                 [{directory, Static},
                      {mimetypes, [
@@ -66,11 +67,11 @@ init(Args) ->
         undefined ->
             Port = 8080;
         {ok, Port} ->
-            ok
+            Port
     end,
 
     %% Name, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts
-    Pid = cowboy:start_listener(?SERVER, 150,
+    _Pid = cowboy:start_listener(?SERVER, 150,
         cowboy_tcp_transport, [{port, Port}],
         cowboy_http_protocol, [{dispatch, Dispatch}]
     ),

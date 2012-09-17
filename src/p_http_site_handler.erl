@@ -22,11 +22,11 @@ init({_Any, http}, Req, []) ->
 
 handle(Req, State) ->
     case cowboy_http_req:binding(command, Req) of
-        {undefined, Reqs} ->
+        {undefined, _Reqs} ->
             {ok, Req3} = cowboy_http_req:reply(404, [], [<<"">>]),
             {ok, Req3, State};
         {Command, Req2} ->
-            handle({command, Command}, Req, State)
+            handle({command, Command}, Req2, State)
    end.
 
 
@@ -58,7 +58,7 @@ handle({command, <<"watch">>}, Req, State) ->
                 ret(415, Req, State, <<"Missing 'key' field">>);
             {Keys, Req2} ->
                 case p_stat_server:add_site_listener(Site, self()) of
-                    {error, Reason} ->
+                    {error, _Reason} ->
                         ret(501, Req2, State, <<"">>);
                     ok ->
                         Headers = [{'Content-Type', <<"text/event-stream">>}],
@@ -92,15 +92,16 @@ build_data(Table, Type) ->
     {ok, Matches} = json:encode(ets:match(Table, {{Type, '$1'}, '$2'})),
     [<<"data:">>, Matches, <<"\n">>].
 
-send_all_data(_Table, _Req, []) ->
+send_all_data(_Table, _Req, _Time, []) ->
     ok;
-send_all_data(Table, Req, [Key|Rest]) ->
+send_all_data(Table, Req, Time, [Key|Rest]) ->
     Event = [<<"event: ">>, Key, <<"\n">>,
+             <<"time: ">>, Time, <<"\n">>,
              build_data(Table, Key), 
              <<"\n">>],
     case cowboy_http_req:chunk(Event, Req) of
         ok -> 
-            send_all_data(Table, Req, Rest);
+            send_all_data(Table, Req, Time, Rest);
         {error, closed} ->
             % We are done here!
             closed
@@ -109,7 +110,7 @@ send_all_data(Table, Req, [Key|Rest]) ->
 watch_loop(Req, State={site, Site, Keys}) ->
     receive
         {p_stat_server, {stats, Time, Table}} ->
-            case send_all_data(Table, Req, Keys) of
+            case send_all_data(Table, Req, Time, Keys) of
                 ok ->
                     watch_loop(Req, State);
                 closed ->
