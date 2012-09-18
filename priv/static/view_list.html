@@ -65,7 +65,7 @@ $(function() {
         max = max <= sorted.length ? max : sorted.length;
         for(var i = 0; i < max; i++) {
             var item = sorted[i];
-            var $child = $('<li>' + item[0] + ': ' + item[1] + '</li>');
+            var $child = $('<li>' + item[1] + ': ' + item[0] + '</li>');
             if(hashdata.float) {
                 $child.addClass('float');
             }

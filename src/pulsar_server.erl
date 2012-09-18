@@ -72,9 +72,17 @@ init(Args) ->
             Port
     end,
 
+    % get the max connections
+    case application:get_env(pulsar, max_connections) of
+        undefined ->
+            MaxConns = 50000;
+        {ok, MaxConns} ->
+            ok
+    end,
+
     %% Name, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts
     _Pid = cowboy:start_listener(?SERVER, 150,
-        cowboy_tcp_transport, [{port, Port}],
+        cowboy_tcp_transport, [{port, Port}, {max_connections, MaxConns}],
         cowboy_http_protocol, [{dispatch, Dispatch}]
     ),
 
