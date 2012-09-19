@@ -25,7 +25,7 @@ parse_path(_Unknown) ->
 
 remove_host(Path) ->
     case binary:split(Path, <<"/">>) of
-        [Host, Rest] ->
+        [_Host, Rest] ->
             << <<"/">>/binary, Rest/binary>>;
         [Rest] ->
             % Not sure how this could happen since it's a bad url
@@ -56,10 +56,46 @@ get_qs(#http_req{raw_qs=RawQs} = Req) ->
             {Qs, Req2}
     end.
 
+cross_tab_metrics({RKey1, RKey2}, Metrics) ->
+    Key1 = erlang:list_to_binary(RKey1),
+    Key2 = erlang:list_to_binary(RKey2),
+    case lists:keytake(Key1, 1, Metrics) of
+        false -> [];
+        {value, {Key1, Value1}, Rest} ->
+            case lists:keysearch(Key2, 1, Rest) of
+                false -> [];
+                {value, {Key2, Value2}} -> [{{Key1, Value1, Key2}, Value2}]
+            end
+    end;
+                    
+cross_tab_metrics(RKey, Metrics) ->
+    Key = erlang:list_to_binary(RKey),
+    case lists:keytake(Key, 1, Metrics) of
+        false ->
+            [];
+        {value, {Key, Value}, Rest} ->
+            lists:map(fun({SubKey, V}) ->
+                {{Key, Value, SubKey}, V}
+            end, Rest)
+    end.
+
 % Parses out the useful information from a Request object.
 parse_request(Req) ->
     {Url, Req2} = get_referrer(Req),
-    {Metrics, Req3} = get_qs(Req2),
+    {QS, Req3} = get_qs(Req2),
     {Host, Req4} = cowboy_http_req:binding(host, Req3),
-    AllMetrics = [{<<"stats">>, <<"total">>}, {<<"url">>, Url} | Metrics],
+    MostMetrics = [{<<"url">>, Url} | QS],
+
+    % Figure out which ones are crosstabbed and cross tab them.
+    Metrics = case application:get_env(pulsar, crosstab_fields) of
+        undefined ->
+            MostMetrics;
+        {ok, Keys} ->
+            CrossTabLists = lists:map(fun(Key) ->
+                cross_tab_metrics(Key, MostMetrics)
+            end, Keys),
+            lists:flatten([MostMetrics|CrossTabLists])
+    end,
+
+    AllMetrics = [{<<"stats">>, <<"total">>} | Metrics],
     {Host, AllMetrics, Req4}.

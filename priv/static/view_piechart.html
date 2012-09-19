@@ -82,9 +82,20 @@ $(function() {
 
     window.chart = chart;
 
-    PulsarAPI.watch_key(hashdata.host, hashdata.key, function(data) {
+    var key = (function() {
+        var qkey = hashdata.key;
+        if(hashdata.value === undefined || hashdata.subkey === undefined) {
+            return qkey;
+        }
+        return {
+            key: qkey,
+            value: hashdata.value,
+            subkey: hashdata.subkey
+        };
+    })();
+    PulsarAPI.watch_key(hashdata.host, key, function(data) {
+        console.log(JSON.stringify(data));
         if(hashdata.log && console && console.log) {
-            console.log(JSON.stringify(data));
         }
         
         // Normalize it

@@ -53,17 +53,17 @@ handle({command, <<"list">>}, Req, State) ->
 
 handle({command, <<"watch">>}, Req, State) ->
     with_host_q(fun(Site, Req2) ->
-        case cowboy_http_req:qs_val(<<"key">>, Req2, undefined) of
+        case get_key(Req2) of 
             {undefined, Req2} ->
                 ret(415, Req, State, <<"Missing 'key' field">>);
-            {Keys, Req2} ->
+            {Key, Req2} ->
                 case p_stat_server:add_site_listener(Site, self()) of
                     {error, _Reason} ->
                         ret(501, Req2, State, <<"">>);
                     ok ->
                         Headers = [{'Content-Type', <<"text/event-stream">>}],
                         {ok, Req3} = cowboy_http_req:chunked_reply(200, Headers, Req2),
-                        watch_loop(Req3, {site, Site, binary:split(Keys, <<",">>, [global])})
+                        watch_loop(Req3, {site, Site, [Key]})
                 end
         end
     end, Req, State);
@@ -77,6 +77,32 @@ with_host_q(Fun, Req, State) ->
             ret_404(Req2, State);
         {Host, Req2} ->
             Fun(Host, Req2)
+    end.
+
+take_qs(Keys, Qs) ->
+    take_qs(Keys, Qs, []).
+
+take_qs([], _Qs, Acc) -> lists:reverse(Acc);
+take_qs([Key|Rest], Qs, Acc) -> 
+    case lists:keytake(Key, 1, Qs) of
+        false ->
+            take_qs(Rest, Qs, [undefined|Acc]);
+        {value, {Key, Value}, RestQs} ->
+            take_qs(Rest, RestQs, [Value|Acc])
+    end.
+
+% Grabs a key or composite key from query strings. 
+get_key(Req) ->
+    {Qs, Req2} = p_http_utils:get_qs(Req),
+    case take_qs([<<"key">>, <<"value">>, <<"subkey">>], Qs) of
+        [undefined, _Value, _SubKey] ->
+            {undefined, Req2};
+        [Key, undefined, _SubKey] ->
+            {Key, Req2};
+        [Key, _Value, undefined] ->
+            {Key, Req2};
+        [Key, KeyValue, SubKey] ->
+            {{Key, KeyValue, SubKey}, Req2}
     end.
 
 ret_200(Req, State) ->
@@ -98,17 +124,22 @@ build_data(PServer, TTable, Key) ->
     Dict2 = p_lstat_server:get_key(PServer, Key),
 
     % Merge them
-    Dict3 = dict:merge(fun(K1, V1, V2) ->
+    Dict3 = dict:merge(fun(_K1, V1, V2) ->
         V1 + V2
     end,Dict1, Dict2),
     KVList = lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict3)),
     {ok, Matches} = json:encode(KVList),
     [<<"data:">>, Matches, <<"\n">>].
 
+format_key({Key, Value, Subkey}) ->
+    io_lib:format("~s:~s:~s", [Key, Value, Subkey]);
+format_key(Key) ->
+    Key.
+
 send_all_data(_PServer, _Table, _Req, _Time, []) ->
     ok;
 send_all_data(PServer, TTable, Req, Time, [Key|Rest]) ->
-    Event = [<<"event: ">>, Key, <<"\n">>,
+    Event = [<<"event: ">>, format_key(Key), <<"\n">>,
              <<"time: ">>, Time, <<"\n">>,
              build_data(PServer, TTable, Key), 
              <<"\n">>],

@@ -92,8 +92,8 @@ init(Args) ->
             ok;
         {ok, Hosts} ->
             lists:foreach(fun(Site) ->
-                p_stat_server:add_site(erlang:atom_to_binary(Site, latin1)),
-                p_lstat_server:add_site(erlang:atom_to_binary(Site, latin1))
+                p_stat_server:add_site(list_to_binary(Site)),
+                p_lstat_server:add_site(list_to_binary(Site))
             end, Hosts)
     end,
 

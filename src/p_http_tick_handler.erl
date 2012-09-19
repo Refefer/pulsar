@@ -24,16 +24,13 @@ init({tcp, http}, Req, _Opts) ->
     {ok, Req, undefined_state}.
 
 handle(Req, State) ->
-    {Url, Req2} = p_http_utils:get_referrer(Req),
-    {Metrics, Req3} = p_http_utils:get_qs(Req2),
-    {Host, Req4} = cowboy_http_req:binding(host, Req3),
-    AllMetrics = [{<<"stats">>, <<"total">>}, {<<"url">>, Url} | Metrics],
-    case p_stat_server:add_metrics(Host, AllMetrics) of
+    {Host, Metrics, Req2} = p_http_utils:parse_request(Req),
+    case p_stat_server:add_metrics(Host, Metrics) of
         {error, not_defined} ->
-            {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"Site Not Watched">>, Req4);
+            {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"Site Not Watched">>, Req2);
         ok ->
             Headers = [{'Content-Type', <<"text/plain">>}],
-            {ok, FinalReq} = cowboy_http_req:reply(200, Headers, Req4)
+            {ok, FinalReq} = cowboy_http_req:reply(200, Headers, Req2)
     end,
             
     {ok, FinalReq, State}.

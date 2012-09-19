@@ -28,7 +28,7 @@ $(function() {
     // The number of values to consider for the point plot value
     hashdata.running_tally = hashdata.running_tally === undefined ? undefined : parseInt(hashdata.running_tally);
     // Averages the total tally by the number tallied.
-    hashdata.average_tally = hashdata.average_tally !== undefined; 
+    hashdata.average_tally = hashdata.average_tally !== undefined ? parseInt(hashdata.average_tally) : 0;
     // Set a fixed minimum y value.
     hashdata.min_y = hashdata.min_y === undefined ? null : parseInt(hashdata.min_y);
     
@@ -42,6 +42,28 @@ $(function() {
         }
     });
 
+    var key = (function() {
+        var qkey = hashdata.key;
+        if(hashdata.value === undefined || hashdata.subkey === undefined) {
+            return qkey;
+        }
+        return {
+            key: qkey,
+            value: hashdata.value,
+            subkey: hashdata.subkey
+        };
+    })();
+
+    if(hashdata.title === undefined) {
+        var title = "Host: " + hashdata.host + ',';
+        if(typeof key === "string") {
+            title += " Key: " + key;
+        } else {
+            title += " Key: \"" + key.key + "\", Value: \"" + 
+                     key.value + "\", Subkey: \"" + key.subkey +"\"";
+        }
+        hashdata.title = title;
+    }
     var chart = new Highcharts.Chart({
         chart: {
             renderTo: 'graph',
@@ -178,11 +200,14 @@ $(function() {
                 }
                 // Sum up the series
                 var total = 0;
-                for(var j = 0; j < series_data.length; j++) {
-                    total += series_data[j];
+                var sample_length = hashdata.average_tally ? 
+                    Math.min(hashdata.average_tally, series_data.length) :
+                    series_data.length;
+                for(var j = 0; j < sample_length; j++) {
+                    total += series_data[sample_length - j - 1];
                 }
                 if(hashdata.average_tally) {
-                    total = total/series_data.length;
+                    total = total/sample_length;
                 }
 
                 point = [point[0], total];
@@ -196,7 +221,8 @@ $(function() {
         var points = [];
         if(hashdata.running_tally) {
             var data = series.raw_data;
-            for(var i = 0; i < N && i < data.length; i++) {
+            var length = Math.min(N, data.length, hashdata.running_tally);
+            for(var i = 0; i < length; i++) {
                 points.push(data[data.length - i - 1]);
             }
         } else {
@@ -223,7 +249,7 @@ $(function() {
     }
 
     // The magic, simple, Pulsar Api
-    PulsarAPI.watch_key(hashdata.host, hashdata.key, function(data) {
+    PulsarAPI.watch_key(hashdata.host, key, function(data) {
         // Keep time consistent for all series.
         var time = new Date().getTime();
 
