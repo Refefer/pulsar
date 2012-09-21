@@ -116,7 +116,20 @@ handle_info(Info, State) ->
     io:format("Uncaught Info: ~p~n", [Info]),
     {noreply, State}.
 
-terminate(Reason, #state{site=Site, tref=Tref}) ->
+% Happy, safe shutdowns
+terminate(normal, State) ->
+    do_terminate(State);
+terminate(shutdown, State) ->
+    do_terminate(State);
+terminate({shutdown, Reason}, State) ->
+    do_terminate(State);
+
+% Terminated due to error/crash of some sort.
+terminate(_Other, #state{tref=Tref}) ->
+    % Only stop the timer
+    timer:cancel(Tref).
+
+do_terminate(#state{site=Site, tref=Tref}) ->
     % Cleanup listeners
     send_terminate_message(Site),
 
@@ -145,18 +158,24 @@ send_terminate_message(Site) ->
 
 send_urls(#state{site=Site, table=Table} ) ->
     Pid = spawn(fun() ->
-        case get_listeners(Site) of
-            [] ->
-                % No listeners, nothing to do
-                ok;
-            Members ->
-                {Date, Time} = erlang:localtime(),
-                DateTime = io_lib:format("~B-~B-~B ~B:~B:~B", erlang:tuple_to_list(Date) ++ erlang:tuple_to_list(Time)),
-                lists:foreach(fun(Pid) ->
-                    Pid ! {?MODULE, {stats, DateTime, Table}}
-                end, Members),
-                % Sleep one minute before cleaning up.
-                timer:sleep(60000)
+        receive
+             {'ETS-TRANSFER', _Tab, _FromPid, _GiftData} ->
+                 case get_listeners(Site) of
+                     [] ->
+                         % No listeners, nothing to do
+                         ok;
+                     Members ->
+                         DateTime = get_date_time(),
+                         lists:foreach(fun(Pid) ->
+                             Pid ! {?MODULE, {stats, DateTime, Table}}
+                         end, Members),
+                         % Sleep one minute before cleaning up.
+                         timer:sleep(60000)
+                end
+            after
+                5000 ->
+                    % Something went wrong, die off.
+                    ok
         end
     end),
     % We give away the table to make sure that it properly gets
@@ -212,3 +231,7 @@ unregister_listener(Site, Pid) ->
 register_site(Site, Pid) ->
     pg2:join({?MODULE, site, Site}, Pid).
 
+get_date_time() ->
+     {Date, Time} = erlang:localtime(),
+     io_lib:format("~B-~B-~B ~B:~B:~B", 
+          erlang:tuple_to_list(Date) ++ erlang:tuple_to_list(Time)).

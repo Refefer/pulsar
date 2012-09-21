@@ -110,6 +110,7 @@ ret_200(Req, State) ->
 
 ret_404(Req, State) ->
     ret(404, Req, State, <<"">>).
+
 ret(Code, Req, State, Msg) ->
     {ok, Req2} = cowboy_http_req:reply(Code, [], [Msg], Req),
     {ok, Req2, State}.
