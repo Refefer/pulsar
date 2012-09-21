@@ -121,7 +121,7 @@ terminate(normal, State) ->
     do_terminate(State);
 terminate(shutdown, State) ->
     do_terminate(State);
-terminate({shutdown, Reason}, State) ->
+terminate({shutdown, _Reason}, State) ->
     do_terminate(State);
 
 % Terminated due to error/crash of some sort.
