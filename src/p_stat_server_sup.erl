@@ -17,22 +17,23 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, shutdown_server/1]).
+-export([start_link/0, start_link/1, shutdown_server/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
+-define(CHILD(Name, I, Type, Args), {Name, {I, start_link, Args}, permanent, 5000, Type, [I]}).
 
 %% ===================================================================
 %% API functions
 %% ===================================================================
 
 start_link() ->
-    case supervisor:start_link({local, ?MODULE}, ?MODULE, []) of
+    start_link([]).
+start_link(Args) ->
+    case supervisor:start_link(?MODULE, [Args]) of
         {ok, Pid} -> 
-            erlang:unlink(Pid),
             {ok, Pid};
         {error, {already_started, Pid}} ->
             {already_started, Pid}
@@ -45,7 +46,12 @@ shutdown_server(Pid) ->
 %% Supervisor callbacks
 %% ===================================================================
 
-init([]) ->
-    Server = ?CHILD(p_stat_server, worker),
-    {ok, { { simple_one_for_one, 5, 10}, [Server]} }.
-
+init([{site, Site}]) ->
+    Ps = case application:get_env(pulsar, child_procs_per_host) of
+        undefined ->
+            5;
+        {ok, Procs} ->
+            Procs
+    end,
+    Servers = [?CHILD(Name, p_stat_server, worker, [{site, Site}]) || Name <- lists:seq(1, Ps)],
+    {ok, { { one_for_one, 5, 10}, Servers} }.

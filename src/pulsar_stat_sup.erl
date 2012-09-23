@@ -13,17 +13,17 @@
 %% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 %% 
 
--module(p_lstat_server_sup).
+-module(pulsar_stat_sup).
 -behaviour(supervisor).
 
 %% API
--export([start_link/0,start_link/1]).
+-export([start_link/0, start_link/1, shutdown_server/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(CHILD(Name, I, Type, Args), {Name, {I, start_link, Args}, permanent, 5000, Type, [I]}).
+-define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
 
 %% ===================================================================
 %% API functions
@@ -31,20 +31,23 @@
 
 start_link() ->
     start_link([]).
+
 start_link(Args) ->
-    supervisor:start_link(?MODULE, [Args]).
+    case supervisor:start_link({local, ?MODULE}, ?MODULE, Args) of
+        {ok, Pid} -> 
+            {ok, Pid};
+        {error, {already_started, Pid}} ->
+            {already_started, Pid}
+    end.
+
+shutdown_server(Pid) ->
+    supervisor:terminate_child(?MODULE, Pid).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
-init([{site, Site}]) ->
-    Ps = case application:get_env(pulsar, child_procs_per_host) of
-        undefined ->
-            5;
-        {ok, Procs} ->
-            Procs
-    end,
-    Servers = [?CHILD(Name, p_lstat_server, worker, [{site, Site}]) || Name <- lists:seq(1, Ps)],
-    {ok, { { one_for_one, 5, 10}, Servers} }.
+init([]) ->
+    StatServer = ?CHILD(p_stat_sup, supervisor),
+    {ok, { { simple_one_for_one, 5, 10}, [StatServer]} }.
 

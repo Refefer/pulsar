@@ -92,8 +92,7 @@ init(Args) ->
             ok;
         {ok, Hosts} ->
             lists:foreach(fun(Site) ->
-                p_stat_server:add_site(list_to_binary(Site)),
-                p_lstat_server:add_site(list_to_binary(Site))
+                pulsar_stat:add_host(list_to_binary(Site))
             end, Hosts)
     end,
 

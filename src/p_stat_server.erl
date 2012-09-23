@@ -16,15 +16,12 @@
 -module(p_stat_server).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
--include("shared.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, add_site/1, add_metrics/2, 
-         add_site_listener/2, remove_site_listener/2,
-         list_sites/0, delete_site/1]).
+-export([start_link/1, add_metrics/2, publish_metrics/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -40,65 +37,34 @@
 start_link(Args) ->
     gen_server:start_link(?MODULE, [Args], []).
 
-add_site(Site) ->
-    case get_site(Site) of
-        {ok, Pid} ->
-            {ok, Pid};
-        {error, not_defined} ->
-            pg2:create({?MODULE, site, Site}),
-            pg2:create({?MODULE, listener, Site}),
-            supervisor:start_child(p_stat_server_sup, [{site, Site}])
-    end.
+add_metrics(Pid, Metrics) ->
+    gen_server:cast(Pid, {add_metrics, Metrics}).
 
-delete_site(Site) ->
-    using_site(Site, fun(Pid) -> 
-        gen_server:cast(Pid, stop)
-    end).
+publish_metrics(Pid) ->
+    gen_server:call(Pid, {publish}).
 
-list_sites() ->
-    Sites = lists:filter(fun(Group) -> 
-        case Group of
-            {?MODULE, site, _Site} ->
-                true;
-            Group ->
-                false
-        end
-    end, pg2:which_groups()),
-    lists:map(fun({_Module, site, Site}) -> Site end, Sites).
-
-add_site_listener(Site, Pid) ->
-    using_site(Site, fun(_Pid) ->
-        register_listener(Site, Pid)
-    end).
-
-remove_site_listener(Site, Pid) ->
-    unregister_listener(Site, Pid).
-
-add_metrics(Site, Metrics) ->
-    using_site(Site, fun(Pid) -> 
-        gen_server:cast(Pid, {add_metrics, Metrics})
-    end).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
--record(state, {site, table, tref}).
+-record(state, {dict, site}).
 
 %-spec init({atom(), binary()}) -> {atom(), pid()}
 %      ; init({atom(), binary()}) -> {atom(), binary()}.
 
 init([{site, Site}]) ->
-    register_site(Site, self()),
-    % Load up the pinger
-    {ok, TRef} = timer:send_interval(?TICK_INTERVAL, {event, ping}),
-    {ok, #state{site=Site, table=new_ets(), tref=TRef}}.
+    p_stat_utils:register_short_server(Site, self()),
+    {ok, #state{dict=dict:new(), site=Site}}.
+
+handle_call({publish}, _From, #state{dict=OldDict} = State) ->
+    {reply, {ok, OldDict}, State#state{dict=dict:new()}};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({add_metrics, Metrics}, #state{table=Table} = State) ->
-    update_records(Table, Metrics),
-    {noreply, State};
+handle_cast({add_metrics, Metrics}, #state{dict=Dict} = State) ->
+    NewDict = update_records(Dict, Metrics),
+    {noreply, State#state{dict=NewDict}};
 
 handle_cast(stop, State) ->
     {stop, normal, State};
@@ -107,38 +73,12 @@ handle_cast(Msg, State) ->
     io:format("Received ~p~n", [Msg]),
     {noreply, State}.
 
-% Times up!  Send the list to the handlers
-handle_info({event, ping}, State) ->
-    send_urls(State), 
-    {noreply, State#state{table=new_ets()}};
-
 handle_info(Info, State) ->
     io:format("Uncaught Info: ~p~n", [Info]),
     {noreply, State}.
 
-% Happy, safe shutdowns
-terminate(normal, State) ->
-    do_terminate(State);
-terminate(shutdown, State) ->
-    do_terminate(State);
-terminate({shutdown, _Reason}, State) ->
-    do_terminate(State);
-
 % Terminated due to error/crash of some sort.
-terminate(_Other, #state{tref=Tref}) ->
-    % Only stop the timer
-    timer:cancel(Tref).
-
-do_terminate(#state{site=Site, tref=Tref}) ->
-    % Cleanup listeners
-    send_terminate_message(Site),
-
-    % Stop the timer
-    timer:cancel(Tref),
-
-    % Clean up groups.
-    pg2:delete({?MODULE, site, Site}),
-    pg2:delete({?MODULE, listener, Site}),
+terminate(_Reason, _State) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -147,89 +87,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-send_terminate_message(Site) ->
-    case get_listeners(Site) of
-        [] ->
-            ok;
-        Members ->
-            lists:foreach(fun(Pid) ->
-                Pid ! {?MODULE, {terminate, Site}} end, Members)
-    end.
 
-send_urls(#state{site=Site, table=Table} ) ->
-    Pid = spawn(fun() ->
-        receive
-             {'ETS-TRANSFER', _Tab, _FromPid, _GiftData} ->
-                 case get_listeners(Site) of
-                     [] ->
-                         % No listeners, nothing to do
-                         ok;
-                     Members ->
-                         DateTime = get_date_time(),
-                         lists:foreach(fun(Pid) ->
-                             Pid ! {?MODULE, {stats, DateTime, Table}}
-                         end, Members),
-                         % Sleep one minute before cleaning up.
-                         timer:sleep(60000)
-                end
-            after
-                5000 ->
-                    % Something went wrong, die off.
-                    ok
-        end
-    end),
-    % We give away the table to make sure that it properly gets
-    % cleaned up.  TODO: Make this a smarter gen_fsm.
-    ets:give_away(Table, Pid, []).
-
-get_site(Name) ->
-    case pg2:get_members({?MODULE, site, Name}) of
-        [Pid] ->
-            {ok, Pid};
-        [] ->
-            {error, died};
-        {error, _Reason} ->
-            {error, not_defined}
-    end.
-
-using_site(Site, Fun) ->
-    case get_site(Site) of
-        {ok, Pid} ->
-            Fun(Pid);
-        {error, not_defined} ->
-            case application:get_env(pulsar, dynamic_host) of
-                {ok, true} ->
-                    add_site(Site),
-                    using_site(Site, Fun);
-                _Other ->
-                    {error, not_defined}
-            end
-    end.
-
-update_records(Table, Metrics) ->
-    lists:foreach(fun({Metric, Value}) ->
+update_records(Dict, Metrics) ->
+    lists:foldl(fun({Metric, Value}, AccDict) ->
         Key = {Metric, Value},
-        try ets:update_counter(Table, Key, {2, 1})
-        catch
-            error:_Reason ->
-                ets:insert(Table, {Key, 1})
-        end
-    end, Metrics).
-
-new_ets() ->
-    ets:new(?MODULE, []).
-
-get_listeners(Site) ->
-    pg2:get_members({?MODULE, listener, Site}).
-
-register_listener(Site, Pid) ->
-    pg2:join({?MODULE, listener, Site}, Pid).
-
-unregister_listener(Site, Pid) ->
-    pg2:leave({?MODULE, listener, Site}, Pid).
-
-register_site(Site, Pid) ->
-    pg2:join({?MODULE, site, Site}, Pid).
+        dict:update_counter(Key, 1, AccDict)
+    end, Dict, Metrics).
 
 get_date_time() ->
      {Date, Time} = erlang:localtime(),

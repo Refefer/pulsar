@@ -22,11 +22,8 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/1,
-        add_site/1,
-        get_site/1,
         add_metrics/2,
-        remove_metrics/2,
-        get_key/2]).
+        remove_metrics/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -35,7 +32,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {site, table}).
+-record(state, {site, dict}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -44,51 +41,33 @@
 start_link(Args) ->
     gen_server:start_link(?MODULE, [Args], []).
 
-add_site(Site) ->
-    case get_site_server(Site) of
-        {ok, Pid} ->
-            {ok, Pid};
-        {error, not_defined} ->
-            pg2:create({?MODULE, site, Site}),
-            supervisor:start_child(p_lstat_server_sup, [{site, Site}])
-    end.
-
-get_site(Site) ->
-    get_site_server(Site).
-
 add_metrics(Site, Metrics) ->
     gen_server:cast(Site, {add, Metrics}).
 
 remove_metrics(Site, Metrics) ->
     gen_server:cast(Site, {remove, Metrics}).
 
-get_key(Site, Key) ->
-    Table = gen_server:call(Site, {get_table}),
-    dict:from_list(lists:map(fun([K,V]) ->
-        {K, V}
-    end, ets:match(Table, {{Key, '$1'}, '$2'}))).
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
 init([{site, Site}]) ->
     io:format("Starting ~p~n", [Site]),
-    register_site(Site, self()),
-    Table = ets:new(?MODULE, [{read_concurrency, true}]),
-    {ok, #state{site=Site,table=Table}}.
+    p_stat_utils:register_long_server(Site, self()),
+    {ok, #state{site=Site, dict=dict:new()}}.
 
-handle_call({get_table}, _From, State =#state{table=Table}) ->
-    {reply, Table, State};
+handle_call({publish}, _From, State=#state{dict=Dict}) ->
+    {reply, Dict, State#state{dict=dict:new()}};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({add, Metrics}, State = #state{table=Table}) ->
-    add_records(Table, Metrics),
+handle_cast({add, Metrics}, State = #state{dict=Dict}) ->
+    add_records(Dict, Metrics),
     {noreply, State};
 
-handle_cast({remove, Metrics}, State = #state{table=Table}) ->
-    remove_records(Table, Metrics),
+handle_cast({remove, Metrics}, State = #state{dict=Dict}) ->
+    remove_records(Dict, Metrics),
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -119,36 +98,24 @@ get_site_server(Name) ->
 register_site(Site, Pid) ->
     pg2:join({?MODULE, site, Site}, Pid).
 
-% Adds a set of metrics to the table
-add_records(Table, Metrics) ->
-    lists:foreach(fun({Metric, Value}) ->
+% Adds a set of metrics to the dict
+add_records(Dict, Metrics) ->
+    lists:foldl(fun({Metric, Value}, AccDict) ->
         Key = {Metric, Value},
-        try ets:update_counter(Table, Key, {2, 1})
-        catch
-            error:_Reason ->
-                ets:insert(Table, {Key, 1})
-        end
-    end, Metrics).
+        dict:update_counter(Key, 1, AccDict)
+    end, Dict, Metrics).
 
-% Removes metrics from the table, deleting ones that are
+% Removes metrics from the dict, deleting ones that are
 % zero or less.
-remove_records(Table, Metrics) ->
-    lists:foreach(fun({Metric, Value}) ->
+remove_records(Dict, Metrics) ->
+    lists:foldl(fun({Metric, Value}, AccDict) ->
         Key = {Metric, Value},
-        Result = try ets:update_counter(Table, Key, {2, -1})
-            catch
-                error:bad_arg->
-                    % Likely means it doesn't exist.  Return a 1 since
-                    % there's nothing to delete.
-                    1
-            end,
-        % Remove values which are now zero (or less, although that should
-        % never happen.  Maybe terminate the process if it does?)
-        if
-            Result =< 0 ->
-                ets:delete(Table, Key);
-            true ->
-                ok
+        Dict2 = dict:update_counter(Key, -1, AccDict),
+        % Check if the key is now zero and delete it if it is
+        case dict:fetch(Key, Dict2) of
+            0 ->
+                dict:erase(Key, Dict2);
+            _Other ->
+                Dict2
         end
-    end, Metrics).
-
+    end, Dict, Metrics).

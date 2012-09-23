@@ -40,7 +40,6 @@ start_link() ->
 
 init([]) ->
     HttpServer = ?CHILD(pulsar_server, worker),
-    StatServer = ?CHILD(p_stat_server_sup, supervisor),
-    LstatServer = ?CHILD(p_lstat_server_sup, supervisor),
-    {ok, { {one_for_one, 5, 10}, [StatServer, LstatServer, HttpServer]} }.
+    StatServer = ?CHILD(pulsar_stat_sup, supervisor),
+    {ok, { {one_for_one, 5, 10}, [StatServer, HttpServer]} }.
 
