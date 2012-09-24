@@ -47,7 +47,7 @@ handle({command, <<"remove">>}, Req, State) ->
     end, Req, State);
 
 handle({command, <<"list">>}, Req, State) ->
-    {ok, R} = json:encode(p_stat_server:list_sites()),
+    {ok, R} = json:encode(pulsar_stat:list_sites()),
     {ok, Req2} = cowboy_http_req:reply(200, [{'Content-Type', <<"application/json">>}], R, Req),
     {ok, Req2, State};
 
@@ -57,7 +57,7 @@ handle({command, <<"watch">>}, Req, State) ->
             {undefined, Req2} ->
                 ret(415, Req, State, <<"Missing 'key' field">>);
             {Key, Req2} ->
-                case p_stat_server:add_site_listener(Site, self()) of
+                case pulsar_stat:subscribe(Site, self()) of
                     {error, _Reason} ->
                         ret(501, Req2, State, <<"">>);
                     ok ->
@@ -115,20 +115,11 @@ ret(Code, Req, State, Msg) ->
     {ok, Req2} = cowboy_http_req:reply(Code, [], [Msg], Req),
     {ok, Req2, State}.
             
-build_data(PServer, TTable, Key) ->
-    % From Temp table
-    Dict1 = dict:from_list(lists:map(fun([K,V]) ->
-        {K, V}
-    end, ets:match(TTable, {{Key, '$1'}, '$2'}))),
-
+build_data(Server, Time, Key) ->
     % From perm table
-    Dict2 = p_lstat_server:get_key(PServer, Key),
+    Dict = p_history_server:get_key(Server, Time, Key),
 
-    % Merge them
-    Dict3 = dict:merge(fun(_K1, V1, V2) ->
-        V1 + V2
-    end,Dict1, Dict2),
-    KVList = lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict3)),
+    KVList = lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict)),
     {ok, Matches} = json:encode(KVList),
     [<<"data:">>, Matches, <<"\n">>].
 
@@ -137,16 +128,16 @@ format_key({Key, Value, Subkey}) ->
 format_key(Key) ->
     Key.
 
-send_all_data(_PServer, _Table, _Req, _Time, []) ->
+send_all_data(_Server, _Time, [], _Req) ->
     ok;
-send_all_data(PServer, TTable, Req, Time, [Key|Rest]) ->
+send_all_data(Server, Time, [Key|Rest], Req) ->
     Event = [<<"event: ">>, format_key(Key), <<"\n">>,
-             <<"time: ">>, Time, <<"\n">>,
-             build_data(PServer, TTable, Key), 
+             <<"time: ">>, time_to_string(Time), <<"\n">>,
+             build_data(Server, Time, Key), 
              <<"\n">>],
     case cowboy_http_req:chunk(Event, Req) of
         ok -> 
-            send_all_data(PServer, TTable, Req, Time, Rest);
+            send_all_data(Server, Time, Rest, Req);
         {error, closed} ->
             % We are done here!
             closed
@@ -154,19 +145,12 @@ send_all_data(PServer, TTable, Req, Time, [Key|Rest]) ->
 
 watch_loop(Req, State={site, Site, Keys}) ->
     receive
-        {p_stat_server, {stats, Time, Table}} ->
-            PollServer = case p_lstat_server:get_site(Site) of
-                {ok, Server} ->
-                    Server;
-                {error, Reason} ->
-                    Reason
-            end,
-
-            case send_all_data(PollServer, Table, Req, Time, Keys) of
+        {published, SPid, Time, Site} ->
+            case send_all_data(SPid, Time, Keys, Req) of
                 ok ->
                     watch_loop(Req, State);
                 closed ->
-                        p_stat_server:remove_site_listener(Site, self()),
+                        %p_stat_server:remove_site_listener(Site, self()),
                         io:format("Client closed ~n", []),
                         {ok, Req, undefined}
             end;
@@ -174,3 +158,6 @@ watch_loop(Req, State={site, Site, Keys}) ->
             % Someone said to stop watching the site, so exit.
             {ok, Req, finished}
     end.
+
+time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
+    io_lib:format("~p-~p-~p ~p:~p:~p", [Year, Month, Day, Hour, Minute, Second]).

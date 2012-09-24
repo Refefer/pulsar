@@ -5,7 +5,9 @@
          add_short_metrics/2,
          add_long_metrics/2,
          remove_long_metrics/2,
-         publish_short_metrics/1]).
+         publish_short_metrics/1,
+         subscribe/1,
+         subscribe/2]).
 
 -define(SUPER(Host), {?MODULE, super, Host}).
 
@@ -19,6 +21,7 @@ add_host(Host) ->
             pg2:create(?SUPER(Host)),
             pg2:create(p_stat_utils:get_short_stat_group(Host)),
             pg2:create(p_stat_utils:get_long_stat_group(Host)),
+            pg2:create(p_stat_utils:get_history_group(Host)),
             {ok, Pid} = supervisor:start_child(pulsar_stat_sup,[{site, Host}]),
             pg2:join(?SUPER(Host), Pid);
         true ->
@@ -74,8 +77,9 @@ publish_short_metrics(Host) ->
         Dict
     end, get_short_servers(Host))).
     
+% Lists all active hosts.
 list_hosts() ->
-    Hosts = lists:foldl(fun(Group, Hosts) ->
+    lists:foldl(fun(Group, Hosts) ->
         case Group of
             {?MODULE, super, Host} ->
                 [Host|Hosts];
@@ -83,6 +87,17 @@ list_hosts() ->
                 Hosts
         end
     end, [], pg2:which_groups()).
+
+subscribe(Host) ->
+    subscribe(Host, self()).
+
+subscribe(Host, Pid) ->
+    case get_history_server(Host) of
+        {ok, SPid} ->
+            p_history_server:subscribe(SPid, Pid);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -96,6 +111,9 @@ get_short_servers(Host) ->
 
 get_long_server(Host) ->
     get_server(p_stat_utils:get_long_stat_group(Host)).
+
+get_history_server(Host) ->
+    get_server(p_stat_utils:get_history_group(Host)).
 
 get_server(Group) ->
     case pg2:get_closest_pid(Group) of

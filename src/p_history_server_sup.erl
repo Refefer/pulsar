@@ -13,11 +13,13 @@
 %% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 %% 
 
--module(p_stat_sup).
+
+-module(p_history_server_sup).
+
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start_link/1, shutdown_server/1]).
+-export([start_link/0, start_link/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -31,25 +33,14 @@
 
 start_link() ->
     start_link([]).
-
 start_link(Args) ->
-    case supervisor:start_link(?MODULE, [Args]) of
-        {ok, Pid} -> 
-            {ok, Pid};
-        {error, {already_started, Pid}} ->
-            {already_started, Pid}
-    end.
-
-shutdown_server(Pid) ->
-    supervisor:terminate_child(?MODULE, Pid).
+    supervisor:start_link(?MODULE, [Args]).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
 init([{site, Site}]) ->
-    StatServer = ?CHILD(p_stat_server_sup, supervisor, [{site, Site}]),
-    LStatServer = ?CHILD(p_lstat_server_sup, supervisor, [{site, Site}]),
-    HistoryServer = ?CHILD(p_history_server_sup, supervisor, [{site, Site}]),
-    {ok, { { one_for_one, 5, 10}, [StatServer, LStatServer, HistoryServer]} }.
+    Server = ?CHILD(p_history_server, worker, [{site, Site}]),
+    {ok, { { one_for_one, 5, 10}, [Server]} }.
 
