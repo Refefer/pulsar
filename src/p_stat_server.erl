@@ -47,24 +47,26 @@ publish_metrics(Pid) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
--record(state, {dict, site}).
+-record(state, {table, site}).
 
 %-spec init({atom(), binary()}) -> {atom(), pid()}
 %      ; init({atom(), binary()}) -> {atom(), binary()}.
 
 init([{site, Site}]) ->
     p_stat_utils:register_short_server(Site, self()),
-    {ok, #state{dict=dict:new(), site=Site}}.
+    {ok, #state{table=ets:new(table, []), site=Site}}.
 
-handle_call({publish}, _From, #state{dict=OldDict} = State) ->
-    {reply, {ok, OldDict}, State#state{dict=dict:new()}};
+handle_call({publish}, _From, #state{table=Table} = State) ->
+    Dict =dict:from_list(ets:tab2list(Table)),
+    ets:delete_all_objects(Table),
+    {reply, {ok, Dict}, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({add_metrics, Metrics}, #state{dict=Dict} = State) ->
-    NewDict = update_records(Dict, Metrics),
-    {noreply, State#state{dict=NewDict}};
+handle_cast({add_metrics, Metrics}, #state{table=Table} = State) ->
+    update_records(Table, Metrics),
+    {noreply, State};
 
 handle_cast(stop, State) ->
     {stop, normal, State};
@@ -87,12 +89,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-update_records(Dict, Metrics) ->
-    lists:foldl(fun({Metric, Value}, AccDict) ->
-        Key = {Metric, Value},
-        dict:update_counter(Key, 1, AccDict)
-    end, Dict, Metrics).
+update_records(Table, []) ->
+    ok;
+update_records(Table, [{Metric, Value}|Rest]) ->
+    Key = {Metric, Value},
+    try ets:update_counter(Table, Key, {2, 1})
+    catch
+        error:_Reason ->
+            ets:insert(Table, {Key, 1})
+    end,
+    update_records(Table, Rest).
 
 get_date_time() ->
      {Date, Time} = erlang:localtime(),

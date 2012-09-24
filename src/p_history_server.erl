@@ -85,11 +85,17 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 % Time to collect our incremental statistics.
-handle_info(tick, #state{host=Host, listeners=Listeners} = State) ->
+handle_info(tick, #state{host=Host, listeners=Listeners, current_table=OldTable} = State) ->
     Time = erlang:localtime(),
     Dict = pulsar_stat:publish_short_metrics(Host),
     Table = p_history_utils:dict_to_ets(Dict),
     NewListeners = broadcast_published(Host, Time, Listeners),
+    case OldTable of
+        nil ->
+            ok;
+        Other ->
+            ets:delete(OldTable)
+    end,
     {noreply, State#state{timestamp=Time, current_table=Table, listeners=NewListeners}};
 
 handle_info(_Info, State) ->
