@@ -44,7 +44,7 @@ remove_host(Host) ->
             
 add_long_metrics(Host, Metrics) ->
     case get_long_server(Host) of 
-        Pid ->
+        {ok, Pid} ->
             p_lstat_server:add_metrics(Pid, Metrics);
         {error, Reason} ->
             {error, Reason}
@@ -52,7 +52,7 @@ add_long_metrics(Host, Metrics) ->
 
 remove_long_metrics(Host, Metrics) ->
     case get_long_server(Host) of 
-        Pid ->
+        {ok, Pid} ->
             p_lstat_server:remove_metrics(Pid, Metrics);
         {error, Reason} ->
             {error, Reason}
@@ -60,7 +60,7 @@ remove_long_metrics(Host, Metrics) ->
 
 add_short_metrics(Host, Metrics) ->
     case get_short_server(Host) of 
-        Pid ->
+        {ok, Pid} ->
             p_stat_server:add_metrics(Pid, Metrics);
         {error, Reason} ->
             {error, Reason}
@@ -89,13 +89,21 @@ list_hosts() ->
 %% ------------------------------------------------------------------
 
 get_short_server(Host) ->
-    pg2:get_closest_pid(p_stat_utils:get_short_stat_group(Host)).
+    get_server(p_stat_utils:get_short_stat_group(Host)).
 
 get_short_servers(Host) ->
     pg2:get_members(p_stat_utils:get_short_stat_group(Host)).
 
 get_long_server(Host) ->
-    pg2:get_closest_pid(p_stat_utils:get_long_stat_group(Host)).
+    get_server(p_stat_utils:get_long_stat_group(Host)).
+
+get_server(Group) ->
+    case pg2:get_closest_pid(Group) of
+        Pid ->
+            {ok, Pid};
+        {error, {no_such_group, Group}} ->
+            {error, not_defined}
+    end.
 
 % Merges all dictionaries together, adding their respective values
 % together.

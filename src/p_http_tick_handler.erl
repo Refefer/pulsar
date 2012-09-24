@@ -25,7 +25,7 @@ init({tcp, http}, Req, _Opts) ->
 
 handle(Req, State) ->
     {Host, Metrics, Req2} = p_http_utils:parse_request(Req),
-    case p_stat_server:add_metrics(Host, Metrics) of
+    case pulsar_stat:add_short_metrics(Host, Metrics) of
         {error, not_defined} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"Site Not Watched">>, Req2);
         ok ->

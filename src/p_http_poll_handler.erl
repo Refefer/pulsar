@@ -41,7 +41,7 @@ info(start, Req=#http_req{socket=Socket}, State) ->
             % We want this process to die if the server is dead.
             inet:setopts(Socket, [{active, once}]),
             erlang:link(Server),
-            p_lstat_server:add_metrics(Server, Metrics),
+            pulsar_stat:add_long_metrics(Server, Metrics),
             {loop, Req2, #state{site=Site, metrics=Metrics, lstat_server=Server}, hibernate};
         {error, not_defined} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"">>, Req2),

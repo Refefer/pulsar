@@ -21,7 +21,7 @@ unregister_short_server(Host, Pid) ->
     pg2:leave(?SHORT(Host), Pid).
     
 register_long_server(Host, Pid) ->
-    pg2:join(?SHORT(Host), Pid).
+    pg2:join(?LONG(Host), Pid).
 
 unregister_long_server(Host, Pid) ->
     pg2:leave(?LONG(Host), Pid).
