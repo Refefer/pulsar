@@ -86,7 +86,7 @@ init(Args) ->
         cowboy_http_protocol, [{dispatch, Dispatch}]
     ),
 
-    % Load static sites, if available
+    % Load sites, if available
     case application:get_env(pulsar, hosts) of
         undefined ->
             ok;

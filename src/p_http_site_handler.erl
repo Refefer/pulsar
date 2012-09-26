@@ -47,7 +47,7 @@ handle({command, <<"remove">>}, Req, State) ->
     end, Req, State);
 
 handle({command, <<"list">>}, Req, State) ->
-    {ok, R} = json:encode(pulsar_stat:list_sites()),
+    {ok, R} = json:encode(pulsar_stat:list_hosts()),
     {ok, Req2} = cowboy_http_req:reply(200, [{'Content-Type', <<"application/json">>}], R, Req),
     {ok, Req2, State};
 
