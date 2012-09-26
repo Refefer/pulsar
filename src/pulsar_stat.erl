@@ -6,6 +6,8 @@
          add_long_metrics/2,
          remove_long_metrics/2,
          publish_short_metrics/1,
+         publish_long_metrics/1,
+         publish_all_metrics/1,
          subscribe/1,
          subscribe/2]).
 
@@ -48,7 +50,8 @@ remove_host(Host) ->
 add_long_metrics(Host, Metrics) ->
     case get_long_server(Host) of 
         {ok, Pid} ->
-            p_lstat_server:add_metrics(Pid, Metrics);
+            p_lstat_server:add_metrics(Pid, Metrics),
+            {ok, Pid};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -76,7 +79,16 @@ publish_short_metrics(Host) ->
         {ok, Dict} = p_stat_server:publish_metrics(Server),
         Dict
     end, get_short_servers(Host))).
+
+publish_long_metrics(Host) ->
+    merge_metrics(lists:map(fun(Server) ->
+        {ok, Dict} = p_lstat_server:publish_metrics(Server),
+        Dict
+    end, get_long_servers(Host))).
     
+publish_all_metrics(Host) ->
+    merge_metrics([publish_long_metrics(Host), publish_short_metrics(Host)]).
+
 % Lists all active hosts.
 list_hosts() ->
     lists:foldl(fun(Group, Hosts) ->
@@ -112,15 +124,18 @@ get_short_servers(Host) ->
 get_long_server(Host) ->
     get_server(p_stat_utils:get_long_stat_group(Host)).
 
+get_long_servers(Host) ->
+    pg2:get_members(p_stat_utils:get_long_stat_group(Host)).
+
 get_history_server(Host) ->
     get_server(p_stat_utils:get_history_group(Host)).
 
 get_server(Group) ->
     case pg2:get_closest_pid(Group) of
-        Pid ->
-            {ok, Pid};
         {error, {no_such_group, Group}} ->
-            {error, not_defined}
+            {error, not_defined};
+        Pid ->
+            {ok, Pid}
     end.
 
 % Merges all dictionaries together, adding their respective values

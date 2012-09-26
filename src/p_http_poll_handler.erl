@@ -36,14 +36,13 @@ info({reply, Body}, Req, State) ->
 % closing, so we have to set the socket to active.
 info(start, Req=#http_req{socket=Socket}, State) ->
     {Site, Metrics, Req2} = p_http_utils:parse_request(Req),
-    case p_lstat_server:get_site(Site) of
+    case pulsar_stat:add_long_metrics(Site, Metrics) of
         {ok, Server} ->
-            % We want this process to die if the server is dead.
+            % We want this process to die if the stat server dies
             inet:setopts(Socket, [{active, once}]),
             erlang:link(Server),
-            pulsar_stat:add_long_metrics(Server, Metrics),
             {loop, Req2, #state{site=Site, metrics=Metrics, lstat_server=Server}, hibernate};
-        {error, not_defined} ->
+        {error, _Reason} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"">>, Req2),
             {ok, FinalReq, State}
     end;
@@ -52,11 +51,17 @@ info(start, Req=#http_req{socket=Socket}, State) ->
 info({tcp_closed, _Port}, Req, State) ->
     {ok, Req, State};
 
+% The bound server crashed for some reason, time to quit.
+info({'EXIT', Server, _Reason}, Req, #state{lstat_server=Server}) ->
+    {ok, Req, server_died};
+    
 % Probably should log rogue messages.
 info(_Message, Req=#http_req{socket=Socket}, State) ->
     inet:setopts(Socket, [{active, once}]),
     {loop, Req, State, hibernate}.
 
+terminate(Req, server_died) ->
+    ok;
 terminate(Req, undefined_state) ->
     ok;
 terminate(Req, #state{site=Site, metrics=Metrics, lstat_server=Server}) ->

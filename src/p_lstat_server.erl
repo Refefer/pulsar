@@ -22,8 +22,9 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/1,
-        add_metrics/2,
-        remove_metrics/2]).
+         add_metrics/2,
+         remove_metrics/2,
+         publish_metrics/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -41,11 +42,14 @@
 start_link(Args) ->
     gen_server:start_link(?MODULE, [Args], []).
 
-add_metrics(Site, Metrics) ->
-    gen_server:cast(Site, {add, Metrics}).
+add_metrics(Pid, Metrics) ->
+    gen_server:cast(Pid, {add, Metrics}).
 
-remove_metrics(Site, Metrics) ->
-    gen_server:cast(Site, {remove, Metrics}).
+remove_metrics(Pid, Metrics) ->
+    gen_server:cast(Pid, {remove, Metrics}).
+
+publish_metrics(Pid) ->
+    gen_server:call(Pid, {publish}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -57,18 +61,18 @@ init([{site, Site}]) ->
     {ok, #state{site=Site, dict=dict:new()}}.
 
 handle_call({publish}, _From, State=#state{dict=Dict}) ->
-    {reply, Dict, State#state{dict=dict:new()}};
+    {reply, {ok, Dict}, State#state{dict=Dict}};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({add, Metrics}, State = #state{dict=Dict}) ->
-    add_records(Dict, Metrics),
-    {noreply, State};
+    NewDict = add_records(Dict, Metrics),
+    {noreply, State#state{dict=NewDict}};
 
 handle_cast({remove, Metrics}, State = #state{dict=Dict}) ->
-    remove_records(Dict, Metrics),
-    {noreply, State};
+    NewDict = remove_records(Dict, Metrics),
+    {noreply, State#state{dict=NewDict}};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
