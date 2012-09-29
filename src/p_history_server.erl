@@ -34,9 +34,10 @@
 % To be fleshed out with more features, such as persistance
 -record(state, {host,
                 tref,
+                persister,
+                max_items,
                 listeners=[],
-                timestamp=nil,
-                current_table=nil}).
+                tables=gb_trees:empty()}).
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -65,15 +66,19 @@ get_table(ServerPid, Timestamp) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([{site, Site}]) ->
+init(Props) ->
+    Site = proplists:get_value(site, Props),
     p_stat_utils:register_history_server(Site, self()),
+    Persister = proplists:get_value(persister, Props, p_persister_null),
+    MaxItems =  proplists:get_value(max_memory_items, Props, 1),
     TRef = timer:send_interval(?TICK_INTERVAL, tick),
-    {ok, #state{host=Site, tref=TRef}}.
+    {ok, #state{host=Site,
+                tref=TRef,
+                persister=Persister,
+                max_items=MaxItems}}.
 
-handle_call({get_table, Timestamp}, _From, #state{timestamp=Timestamp, current_table=Table} = State) ->
-    {reply, {ok, Table}, State};
-handle_call({get_table, _Timestamp}, _From, State) ->
-    {reply, {error, not_found}, State};
+handle_call({get_table, Timestamp}, _From, #state{tables=TableIdx} = State) ->
+    {reply, lookup_table(TableIdx, Timestamp), State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -81,22 +86,30 @@ handle_call(_Request, _From, State) ->
 % Adds a listener to the history server.
 handle_cast({subscribe, Pid}, #state{listeners=Listeners} = State) ->
     {noreply, State#state{listeners=[Pid|Listeners]}};
+
+% Handle save
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 % Time to collect our incremental statistics.
-handle_info(tick, #state{host=Host, listeners=Listeners, current_table=OldTable} = State) ->
+handle_info(tick, #state{host=Host, listeners=Listeners, tables=TablesIdx, persister=Persister, max_items=MaxItems} = State) ->
     Time = erlang:localtime(),
     Dict = pulsar_stat:publish_all_metrics(Host),
     Table = p_history_utils:dict_to_ets(Dict),
-    NewListeners = broadcast_published(Host, Time, Listeners),
-    case OldTable of
-        nil ->
-            ok;
-        _RealTable ->
-            ets:delete(OldTable)
-    end,
-    {noreply, State#state{timestamp=Time, current_table=Table, listeners=NewListeners}};
+
+    % Let people know we exist
+    CurListeners = broadcast_published(Host, Time, Listeners),
+
+    % Store the table
+    Persister:store_table(Host, Time, Table),
+
+    % Remove old tables
+    CleanTables = clean_tables(MaxItems, TablesIdx),
+
+    % Add new table
+    NewTablesIdx = gb_trees:insert(Time, Table, CleanTables),
+        
+    {noreply, State#state{listeners=CurListeners, tables=NewTablesIdx}};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -121,5 +134,22 @@ broadcast_published(Host, Time, Listeners) ->
         end
     end, [], Listeners).
             
-time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
-    io_lib:format("~s-~s-~s ~s:~s:~s", [Year, Month, Day, Hour, Minute, Second]).
+% Clean out the oldest tables  when we exceed the Max Items.
+clean_tables(MaxItems, TablesIdx) ->
+    Size = gb_trees:size(TablesIdx),
+    if
+        Size > MaxItems ->
+            {_K, Table, CleanTables} = gb_trees:take_smallest(TablesIdx),
+            ets:delete(Table),
+            CleanTables;
+        true ->
+            TablesIdx
+    end.
+
+lookup_table(Tables, Timestamp) ->
+    case gb_trees:lookup(Timestamp, Tables) of
+        none ->
+            {error, not_found};
+        {value, Table} ->
+            {ok, Table}
+    end.

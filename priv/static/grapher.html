@@ -1,0 +1,61 @@
+<html>
+<head>
+<script type="text/javascript">
+function createIframe(path) {
+    var iframe = document.createElement('iframe');
+    iframe.setAttribute('src', path);
+    iframe.style['width'] = "100%";
+    iframe.style['height'] = "95%";
+    return iframe
+}
+var default_url = "/static/view_graph.html#top_items=10&disable_legend=1&running_tally=12&gc_after=10" ;
+function go() {
+    var inputs = document.getElementsByTagName('input');
+    var params = {};
+    for(var i = 0; i < inputs.length; i++) {
+        var input = inputs[i];
+        if(input.type === 'button') continue;
+
+        if(input.type === 'checkbox') {
+            if(input.checked) {
+                params[input.name] = input.value;
+            }
+        } else if(input.value) {
+            params[input.name] =input.value;
+        }
+    }
+    if(!(params.host !== undefined  && params.key !== undefined  )) {
+        alert("Need both Domain and Key to view!");
+        return;
+    } else if(params.value !== undefined && !params.subkey === undefined  ) {
+        alert("Cannot have a value without a subkey!");
+        return;
+    }
+
+    // Otherwise...
+    var div = document.getElementById("iframe");
+    while(div.childNodes.length) {
+        div.removeChild(div.childNodes[0]);
+    }
+    
+    var url = "http://"+params.pulsar_server+default_url;
+    for(var key in params) {
+        url += '&'+key+'='+params[key];
+    }
+    div.appendChild(createIframe(url));
+}
+</script>
+</head>
+<body>
+    <input type="hidden" name="low_watermark" value="3"/>
+    Pulsar Server<input type="text" name="pulsar_server" value="localhost:8080"/>
+    Host: <input type="text" name="host" value="www.example.com"/>
+    Key: <input type="text" name="key" value="url"/>
+    Value: <input type="text" name="value" value=""/>
+    Subkey: <input type="text" name="subkey" value=""/>
+    <input type="checkbox" name="average_tally" value="12"/> Average
+    <input type="button" value="View" onclick="javascript: go();"/>
+    <div id="iframe">
+    </div>
+</body>
+</html>
