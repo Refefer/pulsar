@@ -50,6 +50,12 @@ shutdown_server(Pid) ->
 init([{site, Site}]) ->
     StatServer = ?CHILD(p_stat_server_sup, supervisor, [{site, Site}]),
     LStatServer = ?CHILD(p_lstat_server_sup, supervisor, [{site, Site}]),
-    HistoryServer = ?CHILD(p_history_server_sup, supervisor, [{site, Site}]),
-    {ok, { { one_for_one, 5, 10}, [StatServer, LStatServer, HistoryServer]} }.
+    HistoryServer = ?CHILD(p_history_server_sup, supervisor, [[{site, Site}]]),
+    PersisterServer = case application:get_env(pulsar, persister) of
+        undefined ->
+            ?CHILD(p_persister_null, worker , [{site, Site}]);
+        {ok, {Persister, Props}} ->
+            ?CHILD(Persister, worker, [[{site, Site}|Props]])
+    end,
+    {ok, { { one_for_one, 5, 10}, [StatServer, LStatServer, HistoryServer, PersisterServer]} }.
 

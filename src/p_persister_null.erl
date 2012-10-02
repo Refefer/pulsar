@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, store_table/3, lookup_timestamp/2]).
+-export([start_link/1, store_table/4, lookup_timestamp/3]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -20,21 +20,23 @@
 %% ------------------------------------------------------------------
 
 start_link(Args) ->
-    gen_server:start_link(?MODULE, [Args], []).
+    gen_server:start_link(?MODULE, Args, []).
 
 % Doesn't save.
-store_table(_Host, _Timestamp, _Table) ->
+store_table(_Server, _Host, _Timestamp, _Table) ->
     ok.
 
-lookup_timestamp(_Host, _Timestamp) ->
+lookup_timestamp(_Server, _Host, _Timestamp) ->
     {error, not_found}.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init(Args) ->
-    {ok, Args}.
+init(Props) ->
+    Site = proplists:get_value(site, Props),
+    p_stat_utils:register_persistence_server(Site, self()),
+    {ok, Props}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.

@@ -89,19 +89,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-get_site_server(Name) ->
-    case pg2:get_members({?MODULE, site, Name}) of
-        [Pid] ->
-            {ok, Pid};
-        [] ->
-            {error, died};
-        {error, _Reason} ->
-            {error, not_defined}
-    end.
-
-register_site(Site, Pid) ->
-    pg2:join({?MODULE, site, Site}, Pid).
-
 % Adds a set of metrics to the dict
 add_records(Dict, Metrics) ->
     lists:foldl(fun({Metric, Value}, AccDict) ->

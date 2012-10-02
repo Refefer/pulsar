@@ -34,7 +34,6 @@
 % To be fleshed out with more features, such as persistance
 -record(state, {host,
                 tref,
-                persister,
                 max_items,
                 listeners=[],
                 tables=gb_trees:empty()}).
@@ -43,7 +42,7 @@
 %% ------------------------------------------------------------------
 
 start_link(Args) ->
-    gen_server:start_link(?MODULE, [Args], []).
+    gen_server:start_link(?MODULE, Args, []).
 
 subscribe(ServerPid, SubscriberPid) ->
     gen_server:cast(ServerPid, {subscribe, SubscriberPid}).
@@ -67,14 +66,13 @@ get_table(ServerPid, Timestamp) ->
 %% ------------------------------------------------------------------
 
 init(Props) ->
+    io:format("Properties: ~p~n", [Props]),
     Site = proplists:get_value(site, Props),
     p_stat_utils:register_history_server(Site, self()),
-    Persister = proplists:get_value(persister, Props, p_persister_null),
-    MaxItems =  proplists:get_value(max_memory_items, Props, 1),
+    MaxItems =  proplists:get_value(max_memory_items, Props, 6),
     TRef = timer:send_interval(?TICK_INTERVAL, tick),
     {ok, #state{host=Site,
                 tref=TRef,
-                persister=Persister,
                 max_items=MaxItems}}.
 
 handle_call({get_table, Timestamp}, _From, #state{tables=TableIdx} = State) ->
@@ -92,7 +90,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 % Time to collect our incremental statistics.
-handle_info(tick, #state{host=Host, listeners=Listeners, tables=TablesIdx, persister=Persister, max_items=MaxItems} = State) ->
+handle_info(tick, #state{host=Host, listeners=Listeners, tables=TablesIdx, max_items=MaxItems} = State) ->
     Time = erlang:localtime(),
     Dict = pulsar_stat:publish_all_metrics(Host),
     Table = p_history_utils:dict_to_ets(Dict),
@@ -101,7 +99,7 @@ handle_info(tick, #state{host=Host, listeners=Listeners, tables=TablesIdx, persi
     CurListeners = broadcast_published(Host, Time, Listeners),
 
     % Store the table
-    Persister:store_table(Host, Time, Table),
+    pulsar_stat:store_table(Host, Time, Table),
 
     % Remove old tables
     CleanTables = clean_tables(MaxItems, TablesIdx),
