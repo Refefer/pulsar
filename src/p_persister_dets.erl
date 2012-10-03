@@ -223,7 +223,7 @@ store_ets(Dir, Timestamp, Table) ->
     case dets:open_file(Filename, []) of
         {ok, Dets} ->
             to_dets(Table, Dets),
-            dets:insert(Dets, {timestamp, Timestamp}),
+            dets:insert_new(Dets, {timestamp, Timestamp}),
             dets:close(Dets),
             {ok, Filename};
         {error, Reason} ->
@@ -244,7 +244,8 @@ purge_old_tables(Toc, Tables) ->
 to_dets(Table, Dets) ->
     case ets:info(Table, owner) of
         null ->
-            % We are owners, do the fast convert
+            % This is disabled since there appears to be a bug
+            % in dets when converting large tables 
             dets:from_ets(Dets, Table);
         _Other ->
             % We don't own it, so we have to iterate over it
@@ -263,7 +264,7 @@ expire_toc(Toc, MaxHistory) ->
     Now = erlang:localtime(),
     Self = self(),
     lists:foreach(fun(Time) ->
-        Diff = time_diff_to_seconds(calendar:time_difference(norm_time(Time), Now)),
+        Diff = time_diff_to_seconds(calendar:time_difference(Now, norm_time(Time))),
         Delta = MaxHistory - Diff,
         erlang:send_after(max(Delta, 0)*1000, Self, {expire, Time})
     end, Keys).
