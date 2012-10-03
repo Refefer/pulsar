@@ -1,5 +1,5 @@
 -module(p_persister_toc).
--export([open/1, lookup/2, store/3, delete/2]).
+-export([open/1, lookup/2, store/3, delete/2, keys/1]).
 -record(toc, {dets}).
 
 open(FileName) ->
@@ -23,3 +23,9 @@ delete(#toc{dets=Dets}=Toc, Timestamp) ->
     dets:delete(Dets, Timestamp),
     dets:sync(Dets),
     {ok, Toc}.
+
+keys(#toc{dets=Dets} = Toc) ->
+    Keys = dets:foldl(fun({Key, Value}, Acc) ->
+        [Key|Acc]
+    end, [], Dets),
+    {Toc, Keys}.

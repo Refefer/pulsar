@@ -47,7 +47,11 @@ init(Props) ->
     Toc = get_toc(Storage),
 
     % Max History is represented in minutes.
-    History = proplists:get_value(max_history, Props, 60),
+    History = proplists:get_value(max_history, Props, infinity),
+
+    % Figure out if we need to expire anything
+    expire_toc(Toc, History),
+
     p_stat_utils:register_persistence_server(Site, self()),
     {ok, #state{directory=Storage, site=Site, toc=Toc, max_history=History}}.
 
@@ -76,10 +80,13 @@ handle_cast({store, _Site, Timestamp, Table}, #state{directory=Dir, toc=Toc, cur
             {noreply, State}
     end;
 
-handle_cast({consolidated, Timestamp, DFilename, OldTimestamps}, #state{toc=Toc} = State) ->
+handle_cast({consolidated, Timestamp, DFilename, OldTimestamps}, #state{toc=Toc, max_history=Hist} = State) ->
 
     % Update toc.
     p_persister_toc:store(Toc, Timestamp, DFilename),
+
+    % Make a note of when to expire
+    erlang:send_after(Hist*60000, self(), {expire, Timestamp}),
 
     % Build the tree for deleting
     DeleteTree = lists:foldl(fun(Tmsp, Tree) ->
@@ -94,6 +101,11 @@ handle_cast({consolidated, Timestamp, DFilename, OldTimestamps}, #state{toc=Toc}
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+% Expire an old record
+handle_info({expire, Timestamp}, #state{toc=Toc} = State) ->
+    {Toc, Filename} = p_persister_toc:lookup(Toc, Timestamp),
+    purge_old_tables(Toc, gb_trees:insert(Timestamp, Filename, gb_trees:empty())),
+    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -242,3 +254,26 @@ to_dets(Table, Dets) ->
                 DTable
             end, Dets, Table)
     end.
+
+% Expires TOC items
+expire_toc(Toc, infinity) ->
+    {ok, Toc};
+expire_toc(Toc, MaxHistory) ->
+    {Toc, Keys} = p_persister_toc:keys(Toc),
+    Now = erlang:localtime(),
+    Self = self(),
+    lists:foreach(fun(Time) ->
+        Diff = time_diff_to_seconds(calendar:time_difference(norm_time(Time), Now)),
+        Delta = MaxHistory - Diff,
+        erlang:send_after(max(Delta, 0)*1000, Self, {expire, Time})
+    end, Keys).
+
+norm_time({Year, Month, Day, Hour, Minute}) ->
+    {{Year, Month, Day}, {Hour, Minute, 0}};
+
+norm_time(Other) ->
+    Other.
+
+time_diff_to_seconds({Days, {Hours, Minutes, Seconds}}) ->
+    Days * 24 * 3600 + Hours * 3600 + Minutes * 60 + Seconds.
+
