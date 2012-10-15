@@ -13,7 +13,12 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, store_table/4, merge_dets/2, consolidated/4]).
+-export([start_link/1,
+         store_table/4,
+         merge_dets/2,
+         consolidated/4,
+         query_after/3,
+         query_between/4]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -35,6 +40,11 @@ store_table(Server, Site, Timestamp, Table) ->
 consolidated(Server, OldMinute, Filename, OldTimestamps) ->
     gen_server:cast(Server, {consolidated, OldMinute, Filename, OldTimestamps}).
 
+query_after(Server, Key, Time) ->
+    query_between(Server, Key, Time, erlang:localtime()).
+query_between(Server, Key, Start, End) ->
+    gen_server:call(Server, {query_between, Key, Start, End}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -54,6 +64,9 @@ init(Props) ->
 
     p_stat_utils:register_persistence_server(Site, self()),
     {ok, #state{directory=Storage, site=Site, toc=Toc, max_history=History}}.
+
+handle_call({query_between, _Start, _End}, _From, State) ->
+    {reply, ok, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -86,7 +99,14 @@ handle_cast({consolidated, Timestamp, DFilename, OldTimestamps}, #state{toc=Toc,
     p_persister_toc:store(Toc, Timestamp, DFilename),
 
     % Make a note of when to expire
-    erlang:send_after(Hist*60000, self(), {expire, Timestamp}),
+    case Hist of
+        infinity ->
+            % no send
+            ok;
+        Hist ->
+            io:format("~p expires in ~p~n", [Timestamp, Hist*60000]),
+            erlang:send_after(Hist*60000, self(), {expire, Timestamp})
+    end,
 
     % Build the tree for deleting
     DeleteTree = lists:foldl(fun(Tmsp, Tree) ->
@@ -219,8 +239,8 @@ store_ets(Dir, Timestamp, Table) ->
     Filename = generate_filename(Dir, Timestamp),
     filelib:ensure_dir(Filename),
     % Store the running tally
-    %case dets:open_file(Filename, [{min_no_slots, ets:info(Table, size)}]) of
-    case dets:open_file(Filename, []) of
+    %case dets:open_file(Filename, []) of
+    case dets:open_file(Filename, [{ram_file, true},{min_no_slots, ets:info(Table, size)}]) of
         {ok, Dets} ->
             to_dets(Table, Dets),
             dets:insert_new(Dets, {timestamp, Timestamp}),
@@ -263,9 +283,11 @@ expire_toc(Toc, MaxHistory) ->
     {Toc, Keys} = p_persister_toc:keys(Toc),
     Now = erlang:localtime(),
     Self = self(),
+    MaxSeconds = MaxHistory * 60,
     lists:foreach(fun(Time) ->
-        Diff = time_diff_to_seconds(calendar:time_difference(Now, norm_time(Time))),
-        Delta = MaxHistory - Diff,
+        Diff = time_diff_to_seconds(calendar:time_difference(norm_time(Time), Now)),
+        Delta = MaxSeconds - Diff,
+        io:format("TTL ~p: ~p~n", [Time, Delta]),
         erlang:send_after(max(Delta, 0)*1000, Self, {expire, Time})
     end, Keys).
 
