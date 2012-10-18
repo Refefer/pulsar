@@ -16,7 +16,7 @@
 -module(p_history_server).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
--include("shared.hrl").
+-include("pulsar.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports

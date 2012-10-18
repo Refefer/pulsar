@@ -1,1 +1,0 @@
--define(TICK_INTERVAL, 5000).
