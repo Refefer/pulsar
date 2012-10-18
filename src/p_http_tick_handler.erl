@@ -20,11 +20,11 @@
 % Included so we can cache qs, since that can be quite expensive.
 -include("deps/cowboy/include/http.hrl").
 
-init({tcp, http}, Req, _Opts) ->
-    {ok, Req, undefined_state}.
+init({tcp, http}, Req, [Opts]) ->
+    {ok, Req, Opts}.
 
-handle(Req, State) ->
-    {Host, Metrics, Req2} = p_http_utils:parse_request(Req),
+handle(Req, Opts) ->
+    {Host, Metrics, Req2} = p_http_utils:parse_request(Req, Opts),
     case pulsar_stat:add_short_metrics(Host, Metrics) of
         {error, not_defined} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"Site Not Watched">>, Req2);
@@ -33,7 +33,7 @@ handle(Req, State) ->
             {ok, FinalReq} = cowboy_http_req:reply(200, Headers, Req2)
     end,
             
-    {ok, FinalReq, State}.
+    {ok, FinalReq, Opts}.
 
 terminate(_Req, _State) ->
     ok.

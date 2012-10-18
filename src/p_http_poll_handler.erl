@@ -24,9 +24,9 @@
     lstat_server :: pid()
 }).
 
-init({tcp, http}, Req, _Opts) ->
+init({tcp, http}, Req, [Opts]) ->
     erlang:send_after(0, self(), start),
-    {loop, Req, undefined_state}.
+    {loop, Req, Opts}.
 
 info({reply, Body}, Req, State) ->
     {ok, Req2} = cowboy_http_req:reply(200, [], Body, Req),
@@ -34,8 +34,8 @@ info({reply, Body}, Req, State) ->
 
 % We want to quit the second we get a message about the socket
 % closing, so we have to set the socket to active.
-info(start, Req=#http_req{socket=Socket}, State) ->
-    {Site, Metrics, Req2} = p_http_utils:parse_request(Req),
+info(start, Req=#http_req{socket=Socket}, Opts) ->
+    {Site, Metrics, Req2} = p_http_utils:parse_request(Req, Opts),
     case pulsar_stat:add_long_metrics(Site, Metrics) of
         {ok, Server} ->
             % We want this process to die if the stat server dies
@@ -44,7 +44,7 @@ info(start, Req=#http_req{socket=Socket}, State) ->
             {loop, Req2, #state{site=Site, metrics=Metrics, lstat_server=Server}, hibernate};
         {error, _Reason} ->
             {ok, FinalReq} = cowboy_http_req:reply(401, [], <<"">>, Req2),
-            {ok, FinalReq, State}
+            {ok, FinalReq, no_state}
     end;
 
 % Client closed the connection, time to move along.

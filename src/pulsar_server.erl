@@ -16,6 +16,7 @@
 -module(pulsar_server).
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
+-include("include/pulsar.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -49,11 +50,15 @@ init(Args) ->
             Static = erlang:list_to_binary(RawStatic)
     end,
 
+    % Get the stat opts so we don't have to grab them
+    % each time from the environmental variables.
+    StatOpts = build_stats_opts(),
+
     Dispatch = [
         %% {Host, list({Path, Handler, Opts})}
         {'_', [
-            {[<<"tick">>, host], p_http_tick_handler, []},
-            {[<<"poll">>, host], p_http_poll_handler, []},
+            {[<<"tick">>, host], p_http_tick_handler, [StatOpts]},
+            {[<<"poll">>, host], p_http_poll_handler, [StatOpts]},
             {[<<"static">>, '...'], cowboy_http_static, 
                 [{directory, Static},
                      {mimetypes, [
@@ -117,3 +122,19 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+build_stats_opts() ->
+    CTF = case application:get_env(pulsar, crosstab_fields) of
+        undefined ->
+            [];
+        {ok, Fields} ->
+            Fields
+    end,
+    Headers = case application:get_env(pulsar, header_mappings) of
+        undefined ->
+            [];
+        {ok, Hs} ->
+            lists:map(fun({Header, Module, Callback, Opts}) ->
+                {list_to_atom(Header), Module, Callback, Opts}
+            end, Hs)
+    end,
+    #field_opts{crosstab_fields=CTF, headers=Headers}.
