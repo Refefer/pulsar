@@ -89,9 +89,8 @@ parse_request(Req, Options) ->
             CrossTabLists = lists:map(fun(Key) ->
                 cross_tab_metrics(Key, MostMetrics)
             end, Keys),
-            lists:flatten([MostMetrics|CrossTabLists])
+            lists:flatten([MostMetrics, CrossTabLists])
     end,
-
     AllMetrics = [{<<"stats">>, <<"total">>} | Metrics],
     {Host, Req3} = cowboy_http_req:binding(host, Req2),
     {Host, AllMetrics, Req3}.
