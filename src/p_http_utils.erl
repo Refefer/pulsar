@@ -35,18 +35,41 @@ get_qs(#http_req{raw_qs=RawQs} = Req) ->
             {Qs, Req2}
     end.
 
+with_key(Key, Metrics, Fun) ->
+    case lists:keytake(Key, 1, Metrics) of
+        false -> [];
+        {value, {Key, Value}, Rest} ->
+            Fun(Value, Rest)
+    end.
+
+% Allow a metric to drill in  
+cross_tab_metrics({Key, all}, Metrics) ->
+    BKey = erlang:list_to_binary(Key),
+    with_key(BKey, Metrics, fun(Value, Rest) ->
+        lists:map(fun({SubKey, V}) ->
+            {{BKey, Value, SubKey}, V}
+        end, Rest)
+    end);
+
+% Allow a metric as a second index
+cross_tab_metrics({all, Key}, Metrics) ->
+    BKey = erlang:list_to_binary(Key),
+    with_key(BKey, Metrics, fun(Value, Rest) ->
+        lists:map(fun({SubKey, V}) ->
+            {{SubKey, V, BKey}, Value}
+        end, Rest)
+    end);
+
 % Individual mapping of one stat to another
 cross_tab_metrics({RKey1, RKey2}, Metrics) ->
     Key1 = erlang:list_to_binary(RKey1),
     Key2 = erlang:list_to_binary(RKey2),
-    case lists:keytake(Key1, 1, Metrics) of
-        false -> [];
-        {value, {Key1, Value1}, Rest} ->
-            case lists:keysearch(Key2, 1, Rest) of
-                false -> [];
-                {value, {Key2, Value2}} -> [{{Key1, Value1, Key2}, Value2}]
-            end
-    end;
+    with_key(Key1, Metrics, fun(Value1, Rest) ->
+        case lists:keysearch(Key2, 1, Rest) of
+            false -> [];
+            {value, {Key2, Value2}} -> [{{Key1, Value1, Key2}, Value2}]
+        end
+    end);
                     
 % Maps all metrics for one Key to all others
 cross_tab_metrics(RKey, Metrics) ->
@@ -67,7 +90,7 @@ cross_tab_metrics(RKey, Metrics) ->
 % Maps all the headers to a set of functions
 map_headers(Headers, Req) ->
     Result = lists:foldl(fun({Header, Module, Callback, Opts}, Stats) ->
-        {Val, Req2} = cowboy_http_req:header(Header, Req, missing),
+        {Val, _Req} = cowboy_http_req:header(Header, Req, missing),
         [Module:Callback({Header, Val}, Opts) | Stats]
     end, [], Headers),
     lists:flatten(Result).
