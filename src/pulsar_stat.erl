@@ -57,6 +57,8 @@ remove_host(Host) ->
             pg2:delete(?SUPER(Host)),
             pg2:delete(p_stat_utils:get_short_stat_group(Host)),
             pg2:delete(p_stat_utils:get_long_stat_group(Host)),
+            pg2:create(p_stat_utils:get_history_group(Host)),
+            pg2:create(p_stat_utils:get_persister_group(Host)),
 
             % Really should only be one
             lists:foreach(fun(Pid) ->
