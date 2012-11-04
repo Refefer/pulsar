@@ -45,6 +45,6 @@ between(#toc{dets=Dets}=Toc, Start, End) ->
 
 normalize_time({{Year, Month, Day}, {Hour, Minute, _Second}}) ->
     {Year, Month, Day, Hour, Minute};
-normalize_time(Other) ->
-    Other.
+normalize_time({Year, Month, Day, Hour, Minute}) ->
+    {Year, Month, Day, Hour, Minute}.
 

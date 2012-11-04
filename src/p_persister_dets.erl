@@ -50,7 +50,6 @@ query_between(Server, Key, Start, End) ->
 %% ------------------------------------------------------------------
 
 init(Props) ->
-    % Get 
     Dir = proplists:get_value(directory, Props, "/tmp"),
     Site = proplists:get_value(site, Props, <<"undefined">>),
     Storage = generate_site_dir(Dir, Site),
@@ -65,8 +64,13 @@ init(Props) ->
     p_stat_utils:register_persistence_server(Site, self()),
     {ok, #state{directory=Storage, site=Site, toc=Toc, max_history=History}}.
 
-handle_call({query_between, _Start, _End}, _From, State) ->
-    {reply, ok, State};
+handle_call({query_between, Key, Start, End}, _From, #state{toc=Toc} = State) ->
+    % Get the tables that exist between the two times
+    {Toc, Tables} = p_persister_toc:between(Toc, Start, End),
+
+    % Open each table as a dets object, query it for the key.
+    Results = search_key(Key, Tables),
+    {reply, {ok, Results}, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -104,7 +108,6 @@ handle_cast({consolidated, Timestamp, DFilename, OldTimestamps}, #state{toc=Toc,
             % no send
             ok;
         Hist ->
-            io:format("~p expires in ~p~n", [Timestamp, Hist*60000]),
             erlang:send_after(Hist*60000, self(), {expire, Timestamp})
     end,
 
@@ -239,7 +242,6 @@ store_ets(Dir, Timestamp, Table) ->
     Filename = generate_filename(Dir, Timestamp),
     filelib:ensure_dir(Filename),
     % Store the running tally
-    %case dets:open_file(Filename, []) of
     case dets:open_file(Filename, [{ram_file, true},{min_no_slots, ets:info(Table, size)}]) of
         {ok, Dets} ->
             to_dets(Table, Dets),
@@ -300,3 +302,43 @@ norm_time(Other) ->
 time_diff_to_seconds({Days, {Hours, Minutes, Seconds}}) ->
     Days * 24 * 3600 + Hours * 3600 + Minutes * 60 + Seconds.
 
+% Loops through a set of DETS tables, looking for a key
+search_key(Key, Tables) ->
+    search_key(Key, gb_trees:iterator(Tables), []).
+search_key(_Key, none, Acc) ->
+    % Merge the dicts together
+    lists:foldl(fun(Dict1, Dict2) ->
+        dict:merge(fun(K, V1, V2) ->
+            % This should never happen
+            V1
+        end, Dict1, Dict2)
+    end, Acc, dict:new());
+search_key(Key, {_Date, Filename, Iter}, Acc) ->
+    Results = case dets:open_file(Filename) of
+        {ok, D} ->
+            try get_values_from_table(D, Key)
+            catch
+                error:_Reason ->
+                    dict:new()
+            end;
+        {error, _Reason} ->
+            % If the main process deleted the file as part of cleanup
+            dict:new()
+    end,
+    search_key(Key, gb_trees:next(Iter), [Results|Acc]).
+
+% Given a compact table, looks for a key
+get_values_from_table(Table, Key) ->
+    % Create a dict for timestamps
+    [[Timestamps]] = dets:match(Table, {timestamp, '$1'}),
+    Dict = dict:from_keys(lists:map(fun(T) -> {T, []} end, Timestamps)),
+
+    % For each key/value found, append to the end of the dict
+    KeyValues = dets:match(Table, {{Key, '$1'}, '$2'}),
+    lists:foldl(fun([Value, Counts], Acc) ->
+        % Join the two lists and add them to their personal dicts 
+        Zipped = lists:zip(lists:sublist(Timestamps, length(Counts)), Counts),
+        lists:foldl(fun({Timestamp, Count}, D) ->
+            dict:append(Timestamp, Count, D)
+        end, Zipped, Acc)
+    end, KeyValues, Dict).

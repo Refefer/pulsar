@@ -22,7 +22,12 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, subscribe/2, get_key/3]).
+-export([start_link/1,
+        subscribe/2,
+        get_key/2,
+        get_key/3,
+        query_after/3,
+        query_between/4]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -47,26 +52,44 @@ start_link(Args) ->
 subscribe(ServerPid, SubscriberPid) ->
     gen_server:cast(ServerPid, {subscribe, SubscriberPid}).
 
+% Get the key from the most recent table
+get_key(ServerPid, Key) ->
+    case get_latest_table(ServerPid) of
+        {ok, {Timestamp, Table}} ->
+            D = dict:from_list(lists:map(fun([K,V]) ->
+                {K, V}
+            end, ets:match(Table, {{Key, '$1'}, '$2'}))),
+            {Timestamp, D};
+        {error, not_found} ->
+            {'_', dict:new()}
+    end.
+
 get_key(ServerPid, Timestamp, Key) ->
     case get_table(ServerPid, Timestamp) of
         {ok, Table} ->
-            Dict = dict:from_list(lists:map(fun([K,V]) ->
+            dict:from_list(lists:map(fun([K,V]) ->
                 {K, V}
-            end, ets:match(Table, {{Key, '$1'}, '$2'}))),
-            Dict;
+            end, ets:match(Table, {{Key, '$1'}, '$2'})));
         {error, not_found} ->
             dict:new()
     end.
 
+query_after(ServerPid, Key, Time) ->
+   query_between(ServerPid, Key, Time, erlang:localtime()).
+query_between(ServerPid, Key, Start, End) ->
+   gen_server:call(ServerPid, {query_between, Key, Start, End}).
+
 get_table(ServerPid, Timestamp) ->
     gen_server:call(ServerPid, {get_table, Timestamp}).
+
+get_latest_table(ServerPid) ->
+    gen_server:call(ServerPid, {get_latest_table}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
 init(Props) ->
-    io:format("Properties: ~p~n", [Props]),
     Site = proplists:get_value(site, Props),
     p_stat_utils:register_history_server(Site, self()),
     MaxItems =  proplists:get_value(max_memory_items, Props, 6),
@@ -77,6 +100,16 @@ init(Props) ->
 
 handle_call({get_table, Timestamp}, _From, #state{tables=TableIdx} = State) ->
     {reply, lookup_table(TableIdx, Timestamp), State};
+
+handle_call({get_latest_table}, _From, #state{tables=TableIdx} = State) ->
+    Response = case gb_trees:is_empty(TableIdx) of
+        true ->
+            {error, not_found};
+        false ->
+            {Timestamp, Table} = gb_trees:largest(TableIdx),
+            {ok, {Timestamp, Table}}
+    end,
+    {reply, Response, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
