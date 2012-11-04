@@ -40,7 +40,7 @@ start_link(Args) ->
 %% Supervisor callbacks
 %% ===================================================================
 
-init([{site, Site}]) ->
-    Server = ?CHILD(p_history_server, worker, [{site, Site}]),
+init(Args) ->
+    Server = ?CHILD(p_history_server, worker, Args),
     {ok, { { one_for_one, 5, 10}, [Server]} }.
 

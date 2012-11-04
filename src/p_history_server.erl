@@ -22,7 +22,12 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, subscribe/2, get_key/3]).
+-export([start_link/1,
+        subscribe/2,
+        get_key/2,
+        get_key/3,
+        query_after/3,
+        query_between/4]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -34,46 +39,77 @@
 % To be fleshed out with more features, such as persistance
 -record(state, {host,
                 tref,
+                max_items,
                 listeners=[],
-                timestamp=nil,
-                current_table=nil}).
+                tables=gb_trees:empty()}).
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
 start_link(Args) ->
-    gen_server:start_link(?MODULE, [Args], []).
+    gen_server:start_link(?MODULE, Args, []).
 
 subscribe(ServerPid, SubscriberPid) ->
     gen_server:cast(ServerPid, {subscribe, SubscriberPid}).
 
+% Get the key from the most recent table
+get_key(ServerPid, Key) ->
+    case get_latest_table(ServerPid) of
+        {ok, {Timestamp, Table}} ->
+            D = dict:from_list(lists:map(fun([K,V]) ->
+                {K, V}
+            end, ets:match(Table, {{Key, '$1'}, '$2'}))),
+            {Timestamp, D};
+        {error, not_found} ->
+            {'_', dict:new()}
+    end.
+
 get_key(ServerPid, Timestamp, Key) ->
     case get_table(ServerPid, Timestamp) of
         {ok, Table} ->
-            Dict = dict:from_list(lists:map(fun([K,V]) ->
+            dict:from_list(lists:map(fun([K,V]) ->
                 {K, V}
-            end, ets:match(Table, {{Key, '$1'}, '$2'}))),
-            Dict;
+            end, ets:match(Table, {{Key, '$1'}, '$2'})));
         {error, not_found} ->
             dict:new()
     end.
 
+query_after(ServerPid, Key, Time) ->
+   query_between(ServerPid, Key, Time, erlang:localtime()).
+query_between(ServerPid, Key, Start, End) ->
+   gen_server:call(ServerPid, {query_between, Key, Start, End}).
+
 get_table(ServerPid, Timestamp) ->
     gen_server:call(ServerPid, {get_table, Timestamp}).
+
+get_latest_table(ServerPid) ->
+    gen_server:call(ServerPid, {get_latest_table}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([{site, Site}]) ->
+init(Props) ->
+    Site = proplists:get_value(site, Props),
     p_stat_utils:register_history_server(Site, self()),
+    MaxItems =  proplists:get_value(max_memory_items, Props, 6),
     TRef = timer:send_interval(?TICK_INTERVAL, tick),
-    {ok, #state{host=Site, tref=TRef}}.
+    {ok, #state{host=Site,
+                tref=TRef,
+                max_items=MaxItems}}.
 
-handle_call({get_table, Timestamp}, _From, #state{timestamp=Timestamp, current_table=Table} = State) ->
-    {reply, {ok, Table}, State};
-handle_call({get_table, _Timestamp}, _From, State) ->
-    {reply, {error, not_found}, State};
+handle_call({get_table, Timestamp}, _From, #state{tables=TableIdx} = State) ->
+    {reply, lookup_table(TableIdx, Timestamp), State};
+
+handle_call({get_latest_table}, _From, #state{tables=TableIdx} = State) ->
+    Response = case gb_trees:is_empty(TableIdx) of
+        true ->
+            {error, not_found};
+        false ->
+            {Timestamp, Table} = gb_trees:largest(TableIdx),
+            {ok, {Timestamp, Table}}
+    end,
+    {reply, Response, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -81,22 +117,30 @@ handle_call(_Request, _From, State) ->
 % Adds a listener to the history server.
 handle_cast({subscribe, Pid}, #state{listeners=Listeners} = State) ->
     {noreply, State#state{listeners=[Pid|Listeners]}};
+
+% Handle save
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 % Time to collect our incremental statistics.
-handle_info(tick, #state{host=Host, listeners=Listeners, current_table=OldTable} = State) ->
+handle_info(tick, #state{host=Host, listeners=Listeners, tables=TablesIdx, max_items=MaxItems} = State) ->
     Time = erlang:localtime(),
     Dict = pulsar_stat:publish_all_metrics(Host),
     Table = p_history_utils:dict_to_ets(Dict),
-    NewListeners = broadcast_published(Host, Time, Listeners),
-    case OldTable of
-        nil ->
-            ok;
-        _RealTable ->
-            ets:delete(OldTable)
-    end,
-    {noreply, State#state{timestamp=Time, current_table=Table, listeners=NewListeners}};
+
+    % Let people know we exist
+    CurListeners = broadcast_published(Host, Time, Listeners),
+
+    % Store the table
+    pulsar_stat:store_table(Host, Time, Table),
+
+    % Remove old tables
+    CleanTables = clean_tables(MaxItems, TablesIdx),
+
+    % Add new table
+    NewTablesIdx = gb_trees:insert(Time, Table, CleanTables),
+        
+    {noreply, State#state{listeners=CurListeners, tables=NewTablesIdx}};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -121,5 +165,22 @@ broadcast_published(Host, Time, Listeners) ->
         end
     end, [], Listeners).
             
-time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
-    io_lib:format("~s-~s-~s ~s:~s:~s", [Year, Month, Day, Hour, Minute, Second]).
+% Clean out the oldest tables  when we exceed the Max Items.
+clean_tables(MaxItems, TablesIdx) ->
+    Size = gb_trees:size(TablesIdx),
+    if
+        Size > MaxItems ->
+            {_K, Table, CleanTables} = gb_trees:take_smallest(TablesIdx),
+            ets:delete(Table),
+            CleanTables;
+        true ->
+            TablesIdx
+    end.
+
+lookup_table(Tables, Timestamp) ->
+    case gb_trees:lookup(Timestamp, Tables) of
+        none ->
+            {error, not_found};
+        {value, Table} ->
+            {ok, Table}
+    end.

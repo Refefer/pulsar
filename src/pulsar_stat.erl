@@ -19,6 +19,7 @@
          list_hosts/0,
          add_short_metrics/2,
          add_long_metrics/2,
+         store_table/3,
          remove_long_metrics/2,
          publish_short_metrics/1,
          publish_long_metrics/1,
@@ -39,6 +40,7 @@ add_host(Host) ->
             pg2:create(p_stat_utils:get_short_stat_group(Host)),
             pg2:create(p_stat_utils:get_long_stat_group(Host)),
             pg2:create(p_stat_utils:get_history_group(Host)),
+            pg2:create(p_stat_utils:get_persister_group(Host)),
             {ok, Pid} = supervisor:start_child(pulsar_stat_sup,[{site, Host}]),
             pg2:join(?SUPER(Host), Pid);
         true ->
@@ -55,6 +57,8 @@ remove_host(Host) ->
             pg2:delete(?SUPER(Host)),
             pg2:delete(p_stat_utils:get_short_stat_group(Host)),
             pg2:delete(p_stat_utils:get_long_stat_group(Host)),
+            pg2:delete(p_stat_utils:get_history_group(Host)),
+            pg2:delete(p_stat_utils:get_persister_group(Host)),
 
             % Really should only be one
             lists:foreach(fun(Pid) ->
@@ -86,6 +90,21 @@ add_short_metrics(Host, Metrics) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+store_table(Host, Time, Table) ->
+    case get_persister_server(Host) of
+        {ok, Pid} ->
+            Module = case application:get_env(pulsar, persister) of
+                undefined ->
+                    p_persister_null;
+                {ok, {P, _Props}} ->
+                    P
+            end,
+            Module:store_table(Pid, Host, Time, Table);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+            
 
 % Talks to all short servers, merging their dictionaries
 % together.
@@ -144,6 +163,9 @@ get_long_servers(Host) ->
 
 get_history_server(Host) ->
     get_server(p_stat_utils:get_history_group(Host)).
+
+get_persister_server(Host) ->
+    get_server(p_stat_utils:get_persister_group(Host)).
 
 get_server(Group) ->
     case pg2:get_closest_pid(Group) of

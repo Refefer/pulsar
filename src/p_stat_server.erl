@@ -89,7 +89,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-update_records(Table, []) ->
+update_records(_Table, []) ->
     ok;
 update_records(Table, [{Metric, Value}|Rest]) ->
     Key = {Metric, Value},
@@ -99,8 +99,3 @@ update_records(Table, [{Metric, Value}|Rest]) ->
             ets:insert(Table, {Key, 1})
     end,
     update_records(Table, Rest).
-
-get_date_time() ->
-     {Date, Time} = erlang:localtime(),
-     io_lib:format("~B-~B-~B ~B:~B:~B", 
-          erlang:tuple_to_list(Date) ++ erlang:tuple_to_list(Time)).

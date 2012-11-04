@@ -17,16 +17,20 @@
 -export([get_short_stat_group/1,
          get_long_stat_group/1,
          get_history_group/1,
+         get_persister_group/1,
          register_short_server/2,
          register_long_server/2,
          register_history_server/2,
+         register_persistence_server/2,
          unregister_short_server/2,
          unregister_long_server/2,
-         unregister_history_server/2]).
+         unregister_history_server/2,
+         unregister_persistence_server/2]).
 
 -define(SHORT(Host), {?MODULE, short, Host}).
 -define(LONG(Host), {?MODULE, long, Host}).
 -define(HISTORY(Host), {?MODULE, history, Host}).
+-define(PERSIST(Host), {?MODULE, persistence, Host}).
 
 get_short_stat_group(Host) ->
     ?SHORT(Host).
@@ -34,6 +38,8 @@ get_long_stat_group(Host) ->
     ?LONG(Host).
 get_history_group(Host) ->
     ?HISTORY(Host).
+get_persister_group(Host) ->
+    ?PERSIST(Host).
 
 register_short_server(Host, Pid) ->
     pg2:join(?SHORT(Host), Pid).
@@ -52,3 +58,9 @@ register_history_server(Host, Pid) ->
 
 unregister_history_server(Host, Pid) ->
     pg2:leave(?HISTORY(Host), Pid).
+
+register_persistence_server(Host, Pid) ->
+    pg2:join(?PERSIST(Host), Pid).
+
+unregister_persistence_server(Host, Pid) ->
+    pg2:leave(?PERSIST(Host), Pid).

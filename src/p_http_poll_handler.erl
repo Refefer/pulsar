@@ -60,11 +60,11 @@ info(_Message, Req=#http_req{socket=Socket}, State) ->
     inet:setopts(Socket, [{active, once}]),
     {loop, Req, State, hibernate}.
 
-terminate(Req, server_died) ->
+terminate(_Req, server_died) ->
     ok;
-terminate(Req, undefined_state) ->
+terminate(_Req, undefined_state) ->
     ok;
-terminate(Req, #state{site=Site, metrics=Metrics, lstat_server=Server}) ->
+terminate(_Req, #state{metrics=Metrics, lstat_server=Server}) ->
     % Add metric removal.
     p_lstat_server:remove_metrics(Server, Metrics),
     ok.
