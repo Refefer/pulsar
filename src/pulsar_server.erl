@@ -59,14 +59,19 @@ init(Args) ->
         {'_', [
             {[<<"tick">>, host], p_http_tick_handler, [StatOpts]},
             {[<<"poll">>, host], p_http_poll_handler, [StatOpts]},
+            % List hosts
+            {[<<"stats">>], p_http_stats_handler, []},
+            % List keys for host
+            {[<<"stats">>, host], p_http_stats_handler, [host]},
+            % List values for host and key
+            {[<<"stats">>, host, key], p_http_stats_handler, [host, key]},
             {[<<"static">>, '...'], cowboy_http_static, 
                 [{directory, Static},
                      {mimetypes, [
                         {<<".html">>, [<<"text/html">>]},
                         {<<".js">>, [<<"application/javascript">>]}
                      ]}
-                ]},
-            {[<<"site">>, command], p_http_site_handler, []}
+                ]}
         ]}
     ],
 
