@@ -24,6 +24,9 @@
 
 % Gets the query values from the path, looking up and caching them.
 get_qs(#http_req{raw_qs=RawQs} = Req) ->
+    cowboy_http_req:qs_vals(Req).
+
+get_qs_cached(#http_req{raw_qs=RawQs} = Req) ->
     case simple_cache:lookup({qs, RawQs}) of
         {error, missing} ->
             {Qs, Req2} = cowboy_http_req:qs_vals(Req),
