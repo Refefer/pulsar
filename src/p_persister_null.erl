@@ -6,7 +6,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, store_table/4, lookup_timestamp/3]).
+-export([start_link/1, store_table/4]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -25,9 +25,6 @@ start_link(Args) ->
 % Doesn't save.
 store_table(_Server, _Host, _Timestamp, _Table) ->
     ok.
-
-lookup_timestamp(_Server, _Host, _Timestamp) ->
-    {error, not_found}.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
