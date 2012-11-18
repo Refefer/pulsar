@@ -53,7 +53,7 @@ init([{site, Site}]) ->
     HistoryServer = ?CHILD(p_history_server_sup, supervisor, [[{site, Site}]]),
     PersisterServer = case application:get_env(pulsar, persister) of
         undefined ->
-            ?CHILD(p_persister_null, worker , [{site, Site}]);
+            ?CHILD(p_persister_null, worker , [[{site, Site}]]);
         {ok, {Persister, Props}} ->
             ?CHILD(Persister, worker, [[{site, Site}|Props]])
     end,
