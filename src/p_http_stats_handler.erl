@@ -30,111 +30,87 @@ handle(Req, [host|State]) ->
         [] ->
             ret_json([Host, <<"Keys:">>], Req2, State);
         [key|_Rest]->
-            {Key, Req3} = cowboy_http_req:binding(key, Req2),
-            Values = get_values(Host, Key),
+            {Key, Req3} = get_key(Req2),
+            Values = lookup_values(Host, Key, Req),
             ret_json(Values, Req3, State)
     end.
 
 terminate(_Req, _State) ->
     ok.
 
-watch(Host, Key, Req) ->
-    {QKey, Req2} = get_key_filter(Key, Req),
-    case pulsar_stat:subscribe(Host, self()) of
-        {error, _Reason} ->
-            ret(501, Req2, [], <<"">>);
-        ok ->
-            Headers = [{'Content-Type', <<"text/event-stream">>}],
-            {ok, Req3} = cowboy_http_req:chunked_reply(200, Headers, Req2),
-            watch_loop(Req3, {site, Host, [QKey]})
+lookup_values(Host, Key, Req) ->
+    CacheKey = {?MODULE, Host, Key},
+    Values = case simple_cache:lookup(CacheKey) of
+        {ok, V} ->
+            V;
+        {error, missing} ->
+            V = lists:sort(fun([_V, Num1],[_V2, Num2]) -> 
+                Num2 =< Num1
+            end, get_values(Host, Key)),
+            simple_cache:set(CacheKey, V, 5),
+            V
+    end,
+    apply_filters(Values, Req).
+
+get_key(Req) ->
+    {Key, Req2} = cowboy_http_req:binding(key, Req),
+    {Qs, Req3} = p_http_utils:get_qs(Req2),
+    Results = lists:filter(fun({QKey, _Value}) -> 
+        case QKey of 
+            << "_", _Rest/binary>> ->
+                false;
+            QKey ->
+                true
+        end
+    end, Qs),
+    case Results of
+        [{FilterKey, FilterValue}|_Rest] ->
+            {{FilterKey, FilterValue, Key}, Req3};
+        _Other ->
+            {Key, Req3}
     end.
 
-with_host_q(Fun, Req, State) ->
-    case cowboy_http_req:qs_val(<<"host">>, Req, undefined) of
-        {undefined, Req2} ->
-            ret_404(Req2, State);
-        {Host, Req2} ->
-            Fun(Host, Req2)
-    end.
-
-take_qs(Keys, Qs) ->
-    take_qs(Keys, Qs, []).
-take_qs([], _Qs, Acc) -> 
-    lists:reverse(Acc);
-take_qs([Key|Rest], Qs, Acc) -> 
-    case lists:keytake(Key, 1, Qs) of
-        false ->
-            take_qs(Rest, Qs, [undefined|Acc]);
-        {value, {Key, Value}, RestQs} ->
-            take_qs(Rest, RestQs, [Value|Acc])
-    end.
-
-% Grabs the key filters off of the url query 
-get_key_filter(Key, Req) ->
+% Filters data based on arguments passed in, respecting order.
+apply_filters(Values, Req) ->
     {Qs, Req2} = p_http_utils:get_qs(Req),
-    case take_qs([<<"value">>, <<"subkey">>], Qs) of
-        [undefined, _SubKey] ->
-            {Key, Req2};
-        [_Value, undefined] ->
-            {Key, Req2};
-        [KeyValue, SubKey] ->
-            {{Key, KeyValue, SubKey}, Req2}
-    end.
+    io:format("QS: ~p~n", [Qs]),
+    apply_filters(Qs, Values, Req2).
 
-ret_200(Req, State) ->
-    ret(200, Req, State, <<"">>).
+apply_filters([], Values, _Req) ->
+    Values;
+% Takes the first Amount items from the list
+apply_filters([{<<"_limit">>, Amount} | Rest], Values, Req) ->
+    Num = list_to_integer(binary_to_list(Amount)),
+    apply_filters(Rest, lists:sublist(Values, Num), Req);
+% Reverses the list
+apply_filters([{<<"_reverse">>, _Dir} | Rest], Values, Req) ->
+    apply_filters(Rest, lists:reverse(Values), Req);
+% Grabs only the provided value
+apply_filters([{<<"_value">>, DKey} | _Rest], Values, _Req) ->
+    lists:filter(fun([Key, _V]) ->
+        Key == DKey
+    end, Values);
+apply_filters([_Unknown | Rest], Values, Req) ->
+    apply_filters(Rest, Values, Req).
 
 ret_json(Response, Req, State) ->
     {ok, R} = json:encode(Response),
     {ok, Req2} = cowboy_http_req:reply(200, [{'Content-Type', <<"application/json">>}], R, Req),
     {ok, Req2, State}.
 
-ret_404(Req, State) ->
-    ret(404, Req, State, <<"">>).
-
 ret(Code, Req, State, Msg) ->
     {ok, Req2} = cowboy_http_req:reply(Code, [], [Msg], Req),
     {ok, Req2, State}.
             
-get_values(Server, Key) ->
+get_values(Host, Timestamp, Key) ->
     % From perm table
-    Dict = p_history_server:get_key(Server, Key),
+    Dict = pulsar_stat:query_host(Host, Timestamp, Key),
     lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict)).
     
-format_key({Key, Value, Subkey}) ->
-    io_lib:format("~s:~s:~s", [Key, Value, Subkey]);
-format_key(Key) ->
-    Key.
-
-send_all_data(_Server, _Time, [], _Req) ->
-    ok;
-send_all_data(Server, Time, [Key|Rest], Req) ->
-    Values = get_values(Server, Key),
-    Event = [<<"event: ">>, format_key(Key), <<"\n">>,
-             <<"time: ">>, time_to_string(Time), <<"\n">>,
-             <<"data: ">>, json:encode(Values), <<"\n">>,
-             <<"\n">>],
-    case cowboy_http_req:chunk(Event, Req) of
-        ok -> 
-            send_all_data(Server, Time, Rest, Req);
-        {error, closed} ->
-            % We are done here!
-            closed
-    end.
-
-watch_loop(Req, State={site, Host, Keys}) ->
-    receive
-        {published, SPid, Time, Host} ->
-            case send_all_data(SPid, Time, Keys, Req) of
-                ok ->
-                    watch_loop(Req, State);
-                closed ->
-                    {ok, Req, undefined}
-            end;
-        {p_stat_server, {terminate, Host}} ->
-            % Someone said to stop watching the site, so exit.
-            {ok, Req, finished}
-    end.
-
+get_values(Host, Key) ->
+    % From perm table
+    {Timestamp, Dict} = pulsar_stat:query_host(Host, Key),
+    lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict)).
+    
 time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
     io_lib:format("~p-~p-~p ~p:~p:~p", [Year, Month, Day, Hour, Minute, Second]).

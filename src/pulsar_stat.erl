@@ -24,6 +24,8 @@
          publish_short_metrics/1,
          publish_long_metrics/1,
          publish_all_metrics/1,
+         query_host/2,
+         query_host/3,
          subscribe/1,
          subscribe/2]).
 
@@ -141,6 +143,21 @@ subscribe(Host, Pid) ->
     case get_history_server(Host) of
         {ok, SPid} ->
             p_history_server:subscribe(SPid, Pid);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+query_host(Host, Timestamp, Key) ->
+    case get_history_server(Host) of
+        {ok, SPid} ->
+            p_history_server:get_key(SPid, Timestamp, Key);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+query_host(Host, Key) ->
+    case get_history_server(Host) of
+        {ok, SPid} ->
+            p_history_server:get_key(SPid, Key);
         {error, Reason} ->
             {error, Reason}
     end.
