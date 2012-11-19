@@ -73,7 +73,6 @@ get_key(Req) ->
 % Filters data based on arguments passed in, respecting order.
 apply_filters(Values, Req) ->
     {Qs, Req2} = p_http_utils:get_qs(Req),
-    io:format("QS: ~p~n", [Qs]),
     apply_filters(Qs, Values, Req2).
 
 apply_filters([], Values, _Req) ->
@@ -90,6 +89,12 @@ apply_filters([{<<"_value">>, DKey} | _Rest], Values, _Req) ->
     lists:filter(fun([Key, _V]) ->
         Key == DKey
     end, Values);
+% Minimum value to return
+apply_filters([{<<"_min">>, Amount} | _Rest], Values, _Req) ->
+    Num = list_to_integer(binary_to_list(Amount)),
+    lists:filter(fun([Key, Value]) ->
+        Value >= Num
+    end, Values);
 apply_filters([_Unknown | Rest], Values, Req) ->
     apply_filters(Rest, Values, Req).
 
@@ -104,13 +109,21 @@ ret(Code, Req, State, Msg) ->
             
 get_values(Host, Timestamp, Key) ->
     % From perm table
-    Dict = pulsar_stat:query_host(Host, Timestamp, Key),
-    lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict)).
+    case pulsar_stat:query_host(Host, Key) of
+        {error, _Reason} ->
+            [];
+        Dict ->
+            lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict))
+    end.
     
 get_values(Host, Key) ->
     % From perm table
-    {Timestamp, Dict} = pulsar_stat:query_host(Host, Key),
-    lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict)).
+    case pulsar_stat:query_host(Host, Key) of
+        {error, _Reason} ->
+            [];
+        {Timestamp, Dict} ->
+            lists:map(fun({K,V}) -> [K,V] end, dict:to_list(Dict))
+    end.
     
 time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
     io_lib:format("~p-~p-~p ~p:~p:~p", [Year, Month, Day, Hour, Minute, Second]).

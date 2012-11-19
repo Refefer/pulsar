@@ -42,17 +42,16 @@ $(function() {
         }
     });
 
-    var key = (function() {
-        var qkey = hashdata.key;
-        if(hashdata.value === undefined || hashdata.subkey === undefined) {
-            return qkey;
-        }
-        return {
-            key: qkey,
-            value: hashdata.value,
-            subkey: hashdata.subkey
-        };
-    })();
+    var key = hashdata.key;
+    filters = [];
+    if(hashdata.value !== undefined && hashdata.subkey !== undefined) {
+        key = hashdata.subkey;
+        filters.push([hashdata.key, hashdata.value]);
+    }
+
+    if(hashdata.top_items !== undefined) {
+        filters.push(['_limit', hashdata.top_items+10]);
+    }
 
     if(hashdata.title === undefined) {
         var title = "Host: " + hashdata.host + ',';
@@ -281,12 +280,13 @@ $(function() {
     }
 
     // The magic, simple, Pulsar Api
-    PulsarAPI.watch_key(hashdata.host, key, function(data) {
+    PulsarAPI.watch_key(hashdata.host, key, filters, function(data) {
         // Keep time consistent for all series.
         var time = new Date().getTime();
 
         // We want to sort series by name so when they are added, they look
         // more readable in the key.
+        console.log(data);
         data = data.sort(build_sort_function(0));
 
         data = filter_data(data);
@@ -330,8 +330,6 @@ $(function() {
                 show_series(series);
             }
         }
-
-        window.data = data;
 
         for(name in all_series) {
             var series = chart.get(name);

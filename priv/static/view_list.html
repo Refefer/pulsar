@@ -44,18 +44,13 @@ $(function() {
      $('#graph').css({
         height: hashdata.height || window.innerHeight
     });
-    var key = (function() {
-        var qkey = hashdata.key;
-        if(hashdata.value === undefined || hashdata.subkey === undefined) {
-            return qkey;
-        }
-        return {
-            key: qkey,
-            value: hashdata.value,
-            subkey: hashdata.subkey
-        };
-    })();
-    PulsarAPI.watch_key(hashdata.host, key, function(data) {
+    var filters = [];
+    var key = hashdata.key;
+    if(hashdata.value !== undefined || hashdata.subkey !== undefined) {
+        filters.push([hashdata.key, hashdata.value]);
+        key = hashdata.subkey;
+    }
+    PulsarAPI.watch_key(hashdata.host, key, filters, function(data) {
         if(hashdata.log && console && console.log) {
             console.log(JSON.stringify(data));
         }
