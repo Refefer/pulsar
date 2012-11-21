@@ -17,7 +17,6 @@
          store_table/4,
          merge_dets/2,
          consolidated/4,
-         query_after/3,
          query_between/4]).
 
 %% ------------------------------------------------------------------
@@ -40,10 +39,8 @@ store_table(Server, Site, Timestamp, Table) ->
 consolidated(Server, OldMinute, Filename, OldTimestamps) ->
     gen_server:cast(Server, {consolidated, OldMinute, Filename, OldTimestamps}).
 
-query_after(Server, Key, Time) ->
-    query_between(Server, Key, Time, erlang:localtime()).
 query_between(Server, Key, Start, End) ->
-    gen_server:call(Server, {query_between, Key, Start, End}).
+    gen_server:call(Server, {query_between, Key, norm_to_min(Start), norm_to_min(End)}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -66,7 +63,7 @@ init(Props) ->
 
 handle_call({query_between, Key, Start, End}, _From, #state{toc=Toc} = State) ->
     % Get the tables that exist between the two times
-    {Toc, Tables} = p_persister_toc:between(Toc, Start, End),
+    Tables = p_persister_toc:between(Toc, Start, End),
 
     % Open each table as a dets object, query it for the key.
     Results = search_key(Key, Tables),
@@ -113,7 +110,7 @@ handle_cast({consolidated, Timestamp, DFilename, OldTimestamps}, #state{toc=Toc,
 
     % Build the tree for deleting
     DeleteTree = lists:foldl(fun(Tmsp, Tree) ->
-        {Toc, Filename} = p_persister_toc:lookup(Toc, Tmsp),
+        {ok, Filename} = p_persister_toc:lookup(Toc, Tmsp),
         gb_trees:insert(Tmsp, Filename, Tree)
     end, gb_trees:empty(), OldTimestamps),
 
@@ -126,7 +123,7 @@ handle_cast(_Msg, State) ->
 
 % Expire an old record
 handle_info({expire, Timestamp}, #state{toc=Toc} = State) ->
-    {Toc, Filename} = p_persister_toc:lookup(Toc, Timestamp),
+    {ok, Filename} = p_persister_toc:lookup(Toc, Timestamp),
     purge_old_tables(Toc, gb_trees:insert(Timestamp, Filename, gb_trees:empty())),
     {noreply, State};
 
@@ -282,7 +279,7 @@ to_dets(Table, Dets) ->
 expire_toc(Toc, infinity) ->
     {ok, Toc};
 expire_toc(Toc, MaxHistory) ->
-    {Toc, Keys} = p_persister_toc:keys(Toc),
+    Keys = p_persister_toc:keys(Toc),
     Now = erlang:localtime(),
     Self = self(),
     MaxSeconds = MaxHistory * 60,
@@ -304,15 +301,15 @@ time_diff_to_seconds({Days, {Hours, Minutes, Seconds}}) ->
 
 % Loops through a set of DETS tables, looking for a key
 search_key(Key, Tables) ->
-    search_key(Key, gb_trees:iterator(Tables), []).
+    search_key(Key, gb_trees:next(gb_trees:iterator(Tables)), []).
 search_key(_Key, none, Acc) ->
-    % Merge the dicts together
-    lists:foldl(fun(Dict1, Dict2) ->
-        dict:merge(fun(K, V1, V2) ->
-            % This should never happen
-            V1
-        end, Dict1, Dict2)
-    end, Acc, dict:new());
+    % Merge the dicts together into a gb_trees
+    lists:foldl(fun(Dict1, Tree) ->
+        % Insert each item into the tree
+        lists:foldl(fun({Timestamp, Items}, TreeAcc) ->
+            gb_trees:insert(Timestamp, Items, TreeAcc)
+        end, Tree, dict:to_list(Dict1))
+    end, gb_trees:empty(), Acc);
 search_key(Key, {_Date, Filename, Iter}, Acc) ->
     Results = case dets:open_file(Filename) of
         {ok, D} ->
@@ -331,7 +328,7 @@ search_key(Key, {_Date, Filename, Iter}, Acc) ->
 get_values_from_table(Table, Key) ->
     % Create a dict for timestamps
     [[Timestamps]] = dets:match(Table, {timestamp, '$1'}),
-    Dict = dict:from_keys(lists:map(fun(T) -> {T, []} end, Timestamps)),
+    Dict = dict:from_list(lists:map(fun(T) -> {T, []} end, Timestamps)),
 
     % For each key/value found, append to the end of the dict
     KeyValues = dets:match(Table, {{Key, '$1'}, '$2'}),
@@ -339,6 +336,17 @@ get_values_from_table(Table, Key) ->
         % Join the two lists and add them to their personal dicts 
         Zipped = lists:zip(lists:sublist(Timestamps, length(Counts)), Counts),
         lists:foldl(fun({Timestamp, Count}, D) ->
-            dict:append(Timestamp, Count, D)
-        end, Zipped, Acc)
-    end, KeyValues, Dict).
+            case Count of
+                0 ->
+                    D;
+                _NotZero ->
+                    dict:append(Timestamp, {Value,Count}, D)
+            end
+        end, Acc, Zipped)
+    end, Dict, KeyValues).
+
+norm_to_min({{Year, Month, Day}, {Hour, Minute, Second}}) ->
+    {Year, Month, Day, Hour, Minute};
+norm_to_min(Other) ->
+    Other.
+    

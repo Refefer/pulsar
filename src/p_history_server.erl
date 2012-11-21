@@ -61,7 +61,7 @@ get_key(ServerPid, Key) ->
             end, ets:match(Table, {{Key, '$1'}, '$2'}))),
             {Timestamp, D};
         {error, not_found} ->
-            {'_', dict:new()}
+            {erlang:localtime(), dict:new()}
     end.
 
 get_key(ServerPid, Timestamp, Key) ->

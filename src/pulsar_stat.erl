@@ -26,6 +26,7 @@
          publish_all_metrics/1,
          query_host/2,
          query_host/3,
+         query_history/4,
          subscribe/1,
          subscribe/2]).
 
@@ -96,12 +97,7 @@ add_short_metrics(Host, Metrics) ->
 store_table(Host, Time, Table) ->
     case get_persister_server(Host) of
         {ok, Pid} ->
-            Module = case application:get_env(pulsar, persister) of
-                undefined ->
-                    p_persister_null;
-                {ok, {P, _Props}} ->
-                    P
-            end,
+            Module = get_persister_module(),
             Module:store_table(Pid, Host, Time, Table);
         {error, Reason} ->
             {error, Reason}
@@ -162,6 +158,15 @@ query_host(Host, Key) ->
             {error, Reason}
     end.
 
+query_history(Host, Key, Start, End) ->
+    case get_persister_server(Host) of
+        {ok, SPid} ->
+            Module = get_persister_module(),
+            Module:query_between(SPid, Key, Start, End);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -200,3 +205,12 @@ merge_metrics([Dict|Rest]) ->
             V1+V2
         end, Dict1, Dict2)
     end, Dict, Rest).
+
+get_persister_module() ->
+    case application:get_env(pulsar, persister) of
+        undefined ->
+            p_persister_null;
+        {ok, {P, _Props}} ->
+            P
+    end.
+

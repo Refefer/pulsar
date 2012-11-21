@@ -10,10 +10,14 @@ open(FileName) ->
     {ok, Dets} = dets:open_file(FileName, [{keypos, 2}]),
     #toc{dets=Dets}.
 
-lookup(#toc{dets=Dets}=Toc, Timestamp) ->
+lookup(#toc{dets=Dets}, Timestamp) ->
     %[{Timestamp, Value}] = dets:lookup(Dets, #tmsp_idx{idx=Timestamp}),
-    [[Filename]] = dets:match(Dets, #tmsp_idx{tmsp=Timestamp, filename='$1'}),
-    {Toc, Filename}.
+    case dets:match(Dets, #tmsp_idx{tmsp=Timestamp, filename='$1'}) of
+        [[Filename]] ->
+            {ok, Filename};
+        [] ->
+            {error, missing}
+    end.
 
 store(#toc{dets=Dets}=Toc, Timestamp, File) ->
     case dets:insert(Dets, #tmsp_idx{tmsp=Timestamp, filename=File}) of
@@ -30,18 +34,16 @@ delete(#toc{dets=Dets}=Toc, Timestamp) ->
     dets:sync(Dets),
     {ok, Toc}.
 
-keys(#toc{dets=Dets} = Toc) ->
-    Keys = lists:flatten(dets:match(Dets, #tmsp_idx{tmsp='$1', filename='_'})),
-    {Toc, Keys}.
+keys(#toc{dets=Dets}) ->
+    lists:flatten(dets:match(Dets, #tmsp_idx{tmsp='$1', filename='_'})).
 
-between(#toc{dets=Dets}=Toc, Start, End) ->
+between(#toc{dets=Dets}, Start, End) ->
     NStart = normalize_time(Start),
     NEnd = normalize_time(End),
     Q = qlc:q([{T, F} || #tmsp_idx{tmsp=T, filename=F} <- dets:table(Dets), T >= NStart, T =< NEnd]),
-    Tree = lists:foldl(fun({K, V}, Tree) ->
+    lists:foldl(fun({K, V}, Tree) ->
         gb_trees:insert(K, V, Tree)
-    end, gb_trees:empty(), qlc:e(Q)),
-    {Toc, Tree}.
+    end, gb_trees:empty(), qlc:e(Q)).
 
 normalize_time({{Year, Month, Day}, {Hour, Minute, _Second}}) ->
     {Year, Month, Day, Hour, Minute};

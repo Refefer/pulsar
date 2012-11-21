@@ -15,28 +15,21 @@
 
 -module(p_http_utils).
 -export([get_qs/1,
-        parse_request/1,
-        parse_request/2]).
+         get_query_key/1,
+         apply_query_filters/2,
+         parse_request/1,
+         parse_request/2,
+         time_to_string/1,
+         string_to_time/1,
+         ret_json/3]).
 
 % Included so we can cache qs, since that can be quite expensive.
 -include("deps/cowboy/include/http.hrl").
 -include("pulsar.hrl").
 
 % Gets the query values from the path, looking up and caching them.
-get_qs(#http_req{raw_qs=RawQs} = Req) ->
+get_qs(Req) ->
     cowboy_http_req:qs_vals(Req).
-
-get_qs_cached(#http_req{raw_qs=RawQs} = Req) ->
-    case simple_cache:lookup({qs, RawQs}) of
-        {error, missing} ->
-            {Qs, Req2} = cowboy_http_req:qs_vals(Req),
-            simple_cache:set({qs, RawQs}, {Qs, Req2#http_req.qs_vals}, 60),
-            {Qs, Req2};
-
-        {ok, {Qs, AllQs}} ->
-            Req2 = Req#http_req{qs_vals=AllQs},
-            {Qs, Req2}
-    end.
 
 with_key(Key, Metrics, Fun) ->
     case lists:keytake(Key, 1, Metrics) of
@@ -120,3 +113,68 @@ parse_request(Req, Options) ->
     AllMetrics = [{<<"stats">>, <<"total">>} | Metrics],
     {Host, Req3} = cowboy_http_req:binding(host, Req2),
     {Host, AllMetrics, Req3}.
+
+% Returns the query from a request object
+get_query_key(Req) ->
+    {Key, Req2} = cowboy_http_req:binding(key, Req),
+    {Qs, Req3} = p_http_utils:get_qs(Req2),
+    Results = lists:filter(fun({QKey, _Value}) -> 
+        case QKey of 
+            << "_", _Rest/binary>> ->
+                false;
+            QKey ->
+                true
+        end
+    end, Qs),
+    case Results of
+        [{FilterKey, FilterValue}|_Rest] ->
+            {{FilterKey, FilterValue, Key}, Req3};
+        _Other ->
+            {Key, Req3}
+    end.
+
+% Filters data based on arguments passed in, respecting order.
+apply_query_filters(Values, Req) ->
+    {Qs, Req2} = p_http_utils:get_qs(Req),
+    SortedValues = lists:sort(fun({_K1, V}, {_K2, V2}) ->
+        V >= V2
+    end, Values),
+    apply_filters(Qs, SortedValues, Req2).
+
+apply_filters([], Values, _Req) ->
+    Values;
+% Takes the first Amount items from the list
+apply_filters([{<<"_limit">>, Amount} | Rest], Values, Req) ->
+    Num = list_to_integer(binary_to_list(Amount)),
+    apply_filters(Rest, lists:sublist(Values, Num), Req);
+% Reverses the list
+apply_filters([{<<"_reverse">>, _Dir} | Rest], Values, Req) ->
+    apply_filters(Rest, lists:reverse(Values), Req);
+% Grabs only the provided value
+apply_filters([{<<"_value">>, DKey} | _Rest], Values, _Req) ->
+    lists:filter(fun({Key, _V}) ->
+        Key == DKey
+    end, Values);
+% Minimum value to return
+apply_filters([{<<"_min">>, Amount} | _Rest], Values, _Req) ->
+    Num = list_to_integer(binary_to_list(Amount)),
+    lists:filter(fun({_Key, Value}) ->
+        Value >= Num
+    end, Values);
+apply_filters([_Unknown | Rest], Values, Req) ->
+    apply_filters(Rest, Values, Req).
+
+% Converts an erlang time to string
+time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
+    io_lib:format("~p-~p-~p_~p:~p:~p", [Year, Month, Day, Hour, Minute, Second]).
+string_to_time(String) ->
+    {ok, [Year, Month, Day, Hour, Minute, Second],[]} = io_lib:fread("~d-~d-~d_~d:~d:~d", String),
+    {{Year, Month, Day}, {Hour, Minute, Second}}.
+
+% Sends a response on its way in JSON
+ret_json(Response, Req, State) ->
+    {ok, R} = json:encode(Response),
+    {ok, Req2} = cowboy_http_req:reply(200, [{'Content-Type', <<"application/json">>}], R, Req),
+    {ok, Req2, State}.
+
+
