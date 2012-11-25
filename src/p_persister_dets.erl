@@ -40,7 +40,12 @@ consolidated(Server, OldMinute, Filename, OldTimestamps) ->
     gen_server:cast(Server, {consolidated, OldMinute, Filename, OldTimestamps}).
 
 query_between(Server, Key, Start, End) ->
-    gen_server:call(Server, {query_between, Key, norm_to_min(Start), norm_to_min(End)}).
+    % Get Tables between Start and End
+    {ok, Timestamps} = gen_server:call(Server, {get_timestamps, norm_to_min(Start), norm_to_min(End)}),
+    {ok, search_key(Server, Key, Timestamps)}.
+
+query_key(Server, Timestamp, Key) ->
+    gen_server:call(Server, {query_key, Timestamp, Key}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -61,13 +66,24 @@ init(Props) ->
     p_stat_utils:register_persistence_server(Site, self()),
     {ok, #state{directory=Storage, site=Site, toc=Toc, max_history=History}}.
 
-handle_call({query_between, Key, Start, End}, _From, #state{toc=Toc} = State) ->
+handle_call({get_timestamps, Start, End}, _From, #state{toc=Toc} = State) ->
     % Get the tables that exist between the two times
     Tables = p_persister_toc:between(Toc, Start, End),
+    {reply, {ok, gb_trees:keys(Tables)}, State};
 
-    % Open each table as a dets object, query it for the key.
-    Results = search_key(Key, Tables),
-    {reply, {ok, Results}, State};
+handle_call({query_key, Timestamp, Key}, _From, #state{toc=Toc} = State) ->
+    R = case p_persister_toc:lookup(Toc, Timestamp) of
+        {ok, Filename} ->
+            {ok, D} = dets:open_file(Filename) ,
+            try get_values_from_table(D, Key)
+            catch
+                error:_Reason ->
+                    dict:new()
+            end;
+        {error, missing} ->
+            dict:new()
+    end,
+    {reply, {ok, Timestamp, R}, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -101,11 +117,8 @@ handle_cast({consolidated, Timestamp, DFilename, OldTimestamps}, #state{toc=Toc,
 
     % Make a note of when to expire
     case Hist of
-        infinity ->
-            % no send
-            ok;
-        Hist ->
-            erlang:send_after(Hist*60000, self(), {expire, Timestamp})
+        infinity -> ok;
+        Hist -> erlang:send_after(Hist*60000, self(), {expire, Timestamp})
     end,
 
     % Build the tree for deleting
@@ -177,30 +190,7 @@ consolidate_history(CurMinAcc, Timestamp, Dir) ->
                     % We are going to consolidate the table
                     Server = self(),
                     spawn(fun() ->
-                        % Current minute is up, consolidate the dets tables.
-                        Tables = lists:map(fun(Filename) ->
-                            {ok, D} = dets:open_file(Filename),
-                            D
-                        end, gb_trees:values(CurMinAcc)),
-                        % Merge the dets tables
-                        Dict = merge_dets(Tables, dict:new()),
-                        % Convert it to ets table
-                        Ets = ets:new(consolidated, []),
-                        ets:insert(Ets, dict:to_list(Dict)),
-
-                        % Clean up
-                        lists:foreach(fun(Table) ->
-                            dets:close(Table)
-                        end, Tables),
-
-                        % Store the consolidated table as dets
-                        {ok, DFilename} = store_ets(Dir, OldMinute, Ets),
-
-                        % Delete the ets table 
-                        ets:delete(Ets),
-
-                        % Tell the server we have finished consolidating
-                        consolidated(Server, OldMinute, DFilename, gb_trees:keys(CurMinAcc))
+                        consolidate_tables(Server, CurMinAcc)
                     end),
                     consolidating
             end
@@ -299,10 +289,10 @@ norm_time(Other) ->
 time_diff_to_seconds({Days, {Hours, Minutes, Seconds}}) ->
     Days * 24 * 3600 + Hours * 3600 + Minutes * 60 + Seconds.
 
-% Loops through a set of DETS tables, looking for a key
-search_key(Key, Tables) ->
-    search_key(Key, gb_trees:next(gb_trees:iterator(Tables)), []).
-search_key(_Key, none, Acc) ->
+% Loops through a set of Timestamps, querying for the key
+search_key(Server, Key, Timestamps) ->
+    search_key(Server, Key, Timestamps, []).
+search_key(_Server, _Key, [], Acc) ->
     % Merge the dicts together into a gb_trees
     lists:foldl(fun(Dict1, Tree) ->
         % Insert each item into the tree
@@ -310,30 +300,19 @@ search_key(_Key, none, Acc) ->
             gb_trees:insert(Timestamp, Items, TreeAcc)
         end, Tree, dict:to_list(Dict1))
     end, gb_trees:empty(), Acc);
-search_key(Key, {_Date, Filename, Iter}, Acc) ->
+search_key(Server, Key, [Tmsp|Rest], Acc) ->
     % Check the cache first
-    CacheKey = {?MODULE, Filename, Key},
+    CacheKey = {?MODULE, Tmsp, Key},
     Results = case simple_cache:lookup(CacheKey) of
         {ok, R} ->
             R;
         {error, missing} ->
-            R = case dets:open_file(Filename) of
-                {ok, D} ->
-                    try get_values_from_table(D, Key)
-                    catch
-                        error:_Reason ->
-                            dict:new()
-                    end;
-                {error, _Reason} ->
-                    % If the main process deleted 
-                    % the file as part of cleanup
-                    dict:new()
-            end,
+            {ok, Tmsp, R} = query_key(Server, Tmsp, Key),
             % We add random variance to prevent stampeding herd
-            simple_cache:set(CacheKey, R, 60 + random:uniform(300)),
+            simple_cache:set(CacheKey, R, 180 + random:uniform(180)),
             R
     end,
-    search_key(Key, gb_trees:next(Iter), [Results|Acc]).
+    search_key(Server, Key, Rest, [Results|Acc]).
 
 % Given a compact table, looks for a key
 get_values_from_table(Table, Key) ->
@@ -356,8 +335,38 @@ get_values_from_table(Table, Key) ->
         end, Acc, Zipped)
     end, Dict, KeyValues).
 
-norm_to_min({{Year, Month, Day}, {Hour, Minute, Second}}) ->
+norm_to_min({{Year, Month, Day}, {Hour, Minute, _Second}}) ->
     {Year, Month, Day, Hour, Minute};
 norm_to_min(Other) ->
     Other.
-    
+
+% Consolidates a set of individual det tables into a single Dets table
+consolidate_tables(Server, TableSet) ->
+    % Current minute is up, consolidate the dets tables.
+    Tables = lists:map(fun(Filename) ->
+        {ok, D} = dets:open_file(Filename),
+        D
+    end, gb_trees:values(TableSet)),
+
+    % Merge the dets tables
+    Dict = merge_dets(Tables, dict:new()),
+
+    % Convert it to ets table
+    Ets = ets:new(consolidated, []),
+    ets:insert(Ets, dict:to_list(Dict)),
+
+    % Clean up
+    lists:foreach(fun(Table) ->
+        dets:close(Table)
+    end, Tables),
+
+    % Store the consolidated table as dets
+    {ok, DFilename} = store_ets(Dir, OldMinute, Ets),
+
+    % Delete the ets table 
+    ets:delete(Ets),
+
+    % Tell the server we have finished consolidating
+    consolidated(Server, OldMinute, DFilename, gb_trees:keys(TableSet))
+end),
+
