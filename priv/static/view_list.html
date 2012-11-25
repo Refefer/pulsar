@@ -50,10 +50,14 @@ $(function() {
         filters.push([hashdata.key, hashdata.value]);
         key = hashdata.subkey;
     }
-    PulsarAPI.watch_key(hashdata.host, key, filters, function(data) {
-        if(hashdata.log && console && console.log) {
-            console.log(JSON.stringify(data));
-        }
+    PulsarAPI.watch_key(hashdata.host, key, filters, function(raw_data) {
+        var data = [];
+        for(var tmsp in raw_data) {
+            var d = raw_data[tmsp];
+            for(var key in d) {
+                data.push([key, d[key]]);
+            }
+        }        
         var sorted = data.sort(function(a,b) {
             if(a[1] < b[1]) {
                 return 1;
