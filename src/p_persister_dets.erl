@@ -190,7 +190,7 @@ consolidate_history(CurMinAcc, Timestamp, Dir) ->
                     % We are going to consolidate the table
                     Server = self(),
                     spawn(fun() ->
-                        consolidate_tables(Server, CurMinAcc)
+                        consolidate_tables(Server, CurMinAcc, OldMinute, Dir)
                     end),
                     consolidating
             end
@@ -341,7 +341,7 @@ norm_to_min(Other) ->
     Other.
 
 % Consolidates a set of individual det tables into a single Dets table
-consolidate_tables(Server, TableSet) ->
+consolidate_tables(Server, TableSet, OldMinute, Dir) ->
     % Current minute is up, consolidate the dets tables.
     Tables = lists:map(fun(Filename) ->
         {ok, D} = dets:open_file(Filename),
@@ -367,6 +367,5 @@ consolidate_tables(Server, TableSet) ->
     ets:delete(Ets),
 
     % Tell the server we have finished consolidating
-    consolidated(Server, OldMinute, DFilename, gb_trees:keys(TableSet))
-end),
+    consolidated(Server, OldMinute, DFilename, gb_trees:keys(TableSet)).
 

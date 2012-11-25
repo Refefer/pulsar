@@ -173,13 +173,29 @@ apply_group_modifiers(Items, Req) ->
     apply_group_modifiers(Qs, Items, Req2).
 apply_group_modifiers([], Values, _Req) ->
     Values;
-apply_group_modifiers([{<<"_aggregate">>, <<"true">>}|_Rest], Values, _Req) ->
+% Aggregates all the values across all timestamps
+apply_group_modifiers([{<<"_aggregate">>, <<"true">>}|Rest], Values, Req) ->
     AllCombined = lists:foldl(fun({_Tmsp, KeyValues}, CDict) ->
         lists:foldl(fun({Key, Value}, Dict) ->
             dict:update_counter(Key, Value, Dict)
         end, CDict, KeyValues)
     end, dict:new(), gb_trees:to_list(Values)),
-    gb_trees:insert(<<"_aggregate">>, dict:to_list(AllCombined), gb_trees:empty());
+    Tree = gb_trees:insert(<<"_aggregate">>, dict:to_list(AllCombined), gb_trees:empty()),
+    apply_group_modifiers(Rest, Tree, Req);
+% Converts all timestamps from absolute time to deltas, in seconds
+apply_group_modifiers([{<<"_timestamp">>, <<"delta">>}|Rest], Values, Req) ->
+    Now = calendar:datetime_to_gregorian_seconds(erlang:localtime()),
+    Tree = lists:foldl(fun({Tmsp, KVs}, Tree) ->
+        Key = if
+            is_tuple(Tmsp) ->
+                Delta = Now - calendar:datetime_to_gregorian_seconds(Tmsp),
+                list_to_binary(integer_to_list(Delta));
+            true ->
+                Tmsp
+        end,
+        gb_trees:insert(Key, KVs, Tree)
+    end, gb_trees:empty(), gb_trees:to_list(Values)),
+    apply_group_modifiers(Rest, Tree, Req);
 apply_group_modifiers([_Other|Rest], Values, Req) ->
     apply_group_modifiers(Rest, Values, Req).
 
