@@ -187,7 +187,13 @@ apply_group_modifiers([_Other|Rest], Values, Req) ->
 % Converts an erlang time to string
 time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
     io_lib:format("~p-~p-~p_~p:~p:~p", [Year, Month, Day, Hour, Minute, Second]).
-string_to_time(String) ->
+% Do we have a negative delta?
+string_to_time(<<"-", Minutes/binary>>) ->
+    Mins = list_to_integer(binary_to_list(Minutes)),
+    Delta = calendar:datetime_to_gregorian_seconds(erlang:localtime()) - Mins*60,
+    calendar:gregorian_seconds_to_datetime(Delta);
+string_to_time(Binary) ->
+    String = binary_to_list(Binary),
     {ok, [Year, Month, Day, Hour, Minute, Second],[]} = io_lib:fread("~d-~d-~d_~d:~d:~d", String),
     {{Year, Month, Day}, {Hour, Minute, Second}}.
 

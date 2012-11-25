@@ -74,12 +74,12 @@ get_time_range(Req) ->
         undefined ->
             {nil, nil};
         STime ->
-            Start = p_http_utils:string_to_time(binary_to_list(STime)),
+            Start = p_http_utils:string_to_time(STime),
             End = case proplists:get_value(<<"_end">>, Qs) of
                 undefined ->
                     erlang:localtime();
                 ETime ->
-                    p_http_utils:string_to_time(binary_to_list(ETime))
+                    p_http_utils:string_to_time(ETime)
             end,
             {Start, End}
     end.

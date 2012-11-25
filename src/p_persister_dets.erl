@@ -311,16 +311,27 @@ search_key(_Key, none, Acc) ->
         end, Tree, dict:to_list(Dict1))
     end, gb_trees:empty(), Acc);
 search_key(Key, {_Date, Filename, Iter}, Acc) ->
-    Results = case dets:open_file(Filename) of
-        {ok, D} ->
-            try get_values_from_table(D, Key)
-            catch
-                error:_Reason ->
+    % Check the cache first
+    CacheKey = {?MODULE, Filename, Key},
+    Results = case simple_cache:lookup(CacheKey) of
+        {ok, R} ->
+            R;
+        {error, missing} ->
+            R = case dets:open_file(Filename) of
+                {ok, D} ->
+                    try get_values_from_table(D, Key)
+                    catch
+                        error:_Reason ->
+                            dict:new()
+                    end;
+                {error, _Reason} ->
+                    % If the main process deleted 
+                    % the file as part of cleanup
                     dict:new()
-            end;
-        {error, _Reason} ->
-            % If the main process deleted the file as part of cleanup
-            dict:new()
+            end,
+            % We add random variance to prevent stampeding herd
+            simple_cache:set(CacheKey, R, 60 + random:uniform(300)),
+            R
     end,
     search_key(Key, gb_trees:next(Iter), [Results|Acc]).
 
