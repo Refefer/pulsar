@@ -17,6 +17,7 @@
 -export([get_qs/1,
          get_query_key/1,
          apply_query_filters/2,
+         apply_group_modifiers/2,
          parse_request/1,
          parse_request/2,
          time_to_string/1,
@@ -133,13 +134,15 @@ get_query_key(Req) ->
             {Key, Req3}
     end.
 
+sort_key_values(Values) ->
+    lists:sort(fun({_K1, V}, {_K2, V2}) ->
+        V >= V2
+    end, Values).
+
 % Filters data based on arguments passed in, respecting order.
 apply_query_filters(Values, Req) ->
     {Qs, Req2} = p_http_utils:get_qs(Req),
-    SortedValues = lists:sort(fun({_K1, V}, {_K2, V2}) ->
-        V >= V2
-    end, Values),
-    apply_filters(Qs, SortedValues, Req2).
+    apply_filters(Qs, sort_key_values(Values), Req2).
 
 apply_filters([], Values, _Req) ->
     Values;
@@ -163,6 +166,23 @@ apply_filters([{<<"_min">>, Amount} | _Rest], Values, _Req) ->
     end, Values);
 apply_filters([_Unknown | Rest], Values, Req) ->
     apply_filters(Rest, Values, Req).
+
+% We only have one group modifier right now, _aggregate
+apply_group_modifiers(Items, Req) ->
+    {Qs, Req2} = p_http_utils:get_qs(Req),
+    apply_group_modifiers(Qs, Items, Req2).
+apply_group_modifiers([], Values, Req) ->
+    Values;
+apply_group_modifiers([{<<"_aggregate">>, <<"true">>}|_Rest], Values, _Req) ->
+    AllCombined = lists:foldl(fun({_Tmsp, KeyValues}, CDict) ->
+        lists:foldl(fun({Key, Value}, Dict) ->
+            dict:update_counter(Key, Value, Dict)
+        end, CDict, KeyValues)
+    end, dict:new(), Values),
+    [{<<"_aggregate">>, sort_key_values(dict:to_list(AllCombined))}];
+apply_group_modifiers([_Other|Rest], Values, Req) ->
+    apply_group_modifiers(Rest, Values, Req).
+
 
 % Converts an erlang time to string
 time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
