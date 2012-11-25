@@ -33,11 +33,12 @@ handle(Req, [host|State]) ->
             {Key, Req3} = p_http_utils:get_query_key(Req2),
             Results = case get_time_range(Req3) of
                 {nil, nil} ->
-                    lookup_values(Host, Key, Req3);
+                    lookup_values(Host, Key);
                 {Start, End} ->
-                    lookup_values(Host, Key, Start, End, Req3)
+                    lookup_values(Host, Key, Start, End)
             end,
             ModResults = p_http_utils:apply_group_modifiers(Results, Req3),
+            FilteredResults = filter_tree(ModResults, Req3),
             FormattedResults = lists:map(fun({Tmsp, Values}) ->
                 if
                     is_binary(Tmsp) ->
@@ -45,27 +46,27 @@ handle(Req, [host|State]) ->
                     is_tuple(Tmsp) ->
                         {p_http_utils:time_to_string(Tmsp), {Values}}
                 end
-            end, ModResults),
+            end, FilteredResults),
             p_http_utils:ret_json({lists:reverse(FormattedResults)}, Req3, State)
     end.
 
 terminate(_Req, _State) ->
     ok.
 
-lookup_values(Host, Key, Req) ->
+lookup_values(Host, Key) ->
     case pulsar_stat:query_host(Host, Key) of
         {error, _Reason} ->
             [];
         {Timestamp, Dict} ->
-            filter_tree(gb_trees:insert(Timestamp, dict:to_list(Dict), gb_trees:empty()), Req)
+            gb_trees:insert(Timestamp, dict:to_list(Dict), gb_trees:empty())
     end.
 
-lookup_values(Host, Key, Start, End, Req) ->
+lookup_values(Host, Key, Start, End) ->
     case pulsar_stat:query_history(Host, Key, Start, End) of
         {error, Reason} ->
             [];
         {ok, Tree} ->
-            filter_tree(Tree, Req)
+            Tree
     end.
 
 get_time_range(Req) ->

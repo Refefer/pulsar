@@ -171,18 +171,17 @@ apply_filters([_Unknown | Rest], Values, Req) ->
 apply_group_modifiers(Items, Req) ->
     {Qs, Req2} = p_http_utils:get_qs(Req),
     apply_group_modifiers(Qs, Items, Req2).
-apply_group_modifiers([], Values, Req) ->
+apply_group_modifiers([], Values, _Req) ->
     Values;
 apply_group_modifiers([{<<"_aggregate">>, <<"true">>}|_Rest], Values, _Req) ->
     AllCombined = lists:foldl(fun({_Tmsp, KeyValues}, CDict) ->
         lists:foldl(fun({Key, Value}, Dict) ->
             dict:update_counter(Key, Value, Dict)
         end, CDict, KeyValues)
-    end, dict:new(), Values),
-    [{<<"_aggregate">>, sort_key_values(dict:to_list(AllCombined))}];
+    end, dict:new(), gb_trees:to_list(Values)),
+    gb_trees:insert(<<"_aggregate">>, dict:to_list(AllCombined), gb_trees:empty());
 apply_group_modifiers([_Other|Rest], Values, Req) ->
     apply_group_modifiers(Rest, Values, Req).
-
 
 % Converts an erlang time to string
 time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
