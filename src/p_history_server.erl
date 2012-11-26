@@ -26,7 +26,6 @@
         subscribe/2,
         get_key/2,
         get_key/3,
-        query_after/3,
         query_between/4]).
 
 %% ------------------------------------------------------------------
@@ -56,31 +55,27 @@ subscribe(ServerPid, SubscriberPid) ->
 get_key(ServerPid, Key) ->
     case get_latest_table(ServerPid) of
         {ok, {Timestamp, Table}} ->
-            D = dict:from_list(lists:map(fun([K,V]) ->
-                {K, V}
-            end, ets:match(Table, {{Key, '$1'}, '$2'}))),
-            {Timestamp, D};
+            Results = query_key_in_table(Key, Table),
+            {Timestamp, Results};
         {error, not_found} ->
             {erlang:localtime(), dict:new()}
     end.
 
 get_key(ServerPid, Timestamp, Key) ->
-    case get_table(ServerPid, Timestamp) of
-        {ok, Table} ->
-            dict:from_list(lists:map(fun([K,V]) ->
-                {K, V}
-            end, ets:match(Table, {{Key, '$1'}, '$2'})));
-        {error, not_found} ->
-            dict:new()
+    {ok, Tree} = query_between(ServerPid, Key, Timestamp, Timestamp),
+    case gb_trees:is_empty(Tree) of
+        false ->
+            Tree;
+        true ->
+            gb_tree:insert(Timestamp, [], Tree)
     end.
 
-query_after(ServerPid, Key, Time) ->
-   query_between(ServerPid, Key, Time, erlang:localtime()).
 query_between(ServerPid, Key, Start, End) ->
-   gen_server:call(ServerPid, {query_between, Key, Start, End}).
-
-get_table(ServerPid, Timestamp) ->
-    gen_server:call(ServerPid, {get_table, Timestamp}).
+    Tables = gen_server:call(ServerPid, {query_between, Start, End}),
+    Results = lists:foldl(fun({Tmsp, Table}, Tree) ->
+        gb_trees:insert(Tmsp, query_key_in_table(Key, Table), Tree)
+    end, gb_trees:empty(), gb_trees:to_list(Tables)),
+    {ok, Results}.
 
 get_latest_table(ServerPid) ->
     gen_server:call(ServerPid, {get_latest_table}).
@@ -98,8 +93,8 @@ init(Props) ->
                 tref=TRef,
                 max_items=MaxItems}}.
 
-handle_call({get_table, Timestamp}, _From, #state{tables=TableIdx} = State) ->
-    {reply, lookup_table(TableIdx, Timestamp), State};
+handle_call({query_between, Start, End}, _From, #state{tables=TableIdx} = State) ->
+    {reply, tables_between(TableIdx, Start, End), State};
 
 handle_call({get_latest_table}, _From, #state{tables=TableIdx} = State) ->
     Response = case gb_trees:is_empty(TableIdx) of
@@ -177,10 +172,18 @@ clean_tables(MaxItems, TablesIdx) ->
             TablesIdx
     end.
 
-lookup_table(Tables, Timestamp) ->
-    case gb_trees:lookup(Timestamp, Tables) of
-        none ->
-            {error, not_found};
-        {value, Table} ->
-            {ok, Table}
-    end.
+tables_between(Tables, Start, End) ->
+    lists:foldl(fun({Tmsp, Table}, Tree) ->
+        if 
+            (Tmsp >= Start) andalso (Tmsp =< End) ->
+                gb_trees:insert(Tmsp, Table, Tree);
+            true ->
+                Tree
+        end
+    end, gb_trees:empty(), gb_trees:to_list(Tables)).
+
+query_key_in_table(Key, Table) ->
+    lists:map(fun([K,V]) ->
+        {K, V}
+    end, ets:match(Table, {{Key, '$1'}, '$2'})).
+

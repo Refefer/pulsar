@@ -63,7 +63,7 @@ lookup_values(Host, Key) ->
 
 lookup_values(Host, Key, Start, End) ->
     case pulsar_stat:query_history(Host, Key, Start, End) of
-        {error, Reason} ->
+        {error, _Reason} ->
             [];
         {ok, Tree} ->
             Tree

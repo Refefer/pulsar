@@ -159,12 +159,19 @@ query_host(Host, Key) ->
     end.
 
 query_history(Host, Key, Start, End) ->
-    case get_persister_server(Host) of
-        {ok, SPid} ->
-            Module = get_persister_module(),
-            Module:query_between(SPid, Key, Start, End);
-        {error, Reason} ->
-            {error, Reason}
+    case get_history_server(Host) of
+        {ok, HPid} ->
+            {ok, R1} = p_history_server:query_between(HPid, Key, Start, End),
+            case get_persister_server(Host) of
+                {ok, SPid} ->
+                    Module = get_persister_module(),
+                    {ok, R2} = Module:query_between(SPid, Key, Start, End),
+                    {ok, merge_results(R1, R2)};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+    {error, Reason} ->
+        {error, Reason}
     end.
 
 %% ------------------------------------------------------------------
@@ -214,3 +221,22 @@ get_persister_module() ->
             P
     end.
 
+merge_results(T1, T2) ->
+    {Iter, Acc} = case gb_trees:size(T1) < gb_trees:size(T2) of
+        false ->
+            {T1, T2};
+        true ->
+            {T2, T1}
+    end,
+    merge_iterator(gb_trees:next(gb_trees:iterator(Iter)), Acc).
+
+merge_iterator(none, Acc) ->
+    Acc;
+merge_iterator({Key, Value, Iter}, Acc) ->
+    NewAcc = case gb_trees:is_defined(Key, Acc) of
+        true ->
+            Acc;
+        false ->
+            gb_trees:insert(Key, Value, Acc)
+    end,
+    merge_iterator(gb_trees:next(Iter), NewAcc).
