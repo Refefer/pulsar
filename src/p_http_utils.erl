@@ -174,14 +174,9 @@ apply_group_modifiers(Items, Req) ->
 apply_group_modifiers([], Values, _Req) ->
     Values;
 % Aggregates all the values across all timestamps
-apply_group_modifiers([{<<"_aggregate">>, <<"true">>}|Rest], Values, Req) ->
-    AllCombined = lists:foldl(fun({_Tmsp, KeyValues}, CDict) ->
-        lists:foldl(fun({Key, Value}, Dict) ->
-            dict:update_counter(Key, Value, Dict)
-        end, CDict, KeyValues)
-    end, dict:new(), gb_trees:to_list(Values)),
-    Tree = gb_trees:insert(<<"_aggregate">>, dict:to_list(AllCombined), gb_trees:empty()),
-    apply_group_modifiers(Rest, Tree, Req);
+apply_group_modifiers([{<<"_aggregate">>, AggType}|Rest], Items, Req) ->
+    NewItems = aggregate_stats(AggType, Items),
+    apply_group_modifiers(Rest, NewItems, Req);
 % Converts all timestamps from absolute time to deltas, in seconds
 apply_group_modifiers([{<<"_timestamp">>, <<"delta">>}|Rest], Values, Req) ->
     Now = calendar:datetime_to_gregorian_seconds(erlang:localtime()),
@@ -199,6 +194,35 @@ apply_group_modifiers([{<<"_timestamp">>, <<"delta">>}|Rest], Values, Req) ->
 apply_group_modifiers([_Other|Rest], Values, Req) ->
     apply_group_modifiers(Rest, Values, Req).
 
+get_agg_key(<<"min">>, {{Year, Month, Day}, {Hour, Min, _Sec}}) ->
+    {{Year, Month, Day}, {Hour, Min, 0}};
+get_agg_key(<<"hour">>, {{Year, Month, Day}, {Hour, _Min, _Sec}}) ->
+    {{Year, Month, Day}, {Hour, 0, 0}};
+get_agg_key(<<"day">>, {{Year, Month, Day}, {_Hour, _Min, _Sec}}) ->
+    {{Year, Month, Day}, {0, 0, 0}};
+get_agg_key(<<"all">>, _Date) ->
+    <<"_aggregate">>;
+get_agg_key(_Unknown, Date) ->
+    Date.
+
+% Buckets and aggregates metrics based on their timestamps
+aggregate_stats(Type, Tree) ->
+    aggregate_stats(Type, gb_trees:keys(Tree), Tree, gb_trees:empty()).
+aggregate_stats(_Type, [], _Tree, Agg) ->
+    Agg;
+aggregate_stats(Type, Tmsps, Tree, AggTree) ->
+    [Tmsp|_Rest] = Tmsps,
+    AggKey = get_agg_key(Type, Tmsp),
+    {TmspGroup, Rest} = lists:splitwith(fun(D) -> get_agg_key(Type, D) == AggKey end, Tmsps),
+    D = lists:foldl(fun(T, Dict) ->
+        {value, KVList} = gb_trees:lookup(T, Tree),
+        lists:foldl(fun({Key, Value}, D) ->
+            dict:update_counter(Key, Value, D)
+        end, Dict, KVList)
+    end, dict:new(), TmspGroup),
+    NewAgg = gb_trees:insert(AggKey, dict:to_list(D), AggTree),
+    aggregate_stats(Type, Rest, Tree, NewAgg).
+    
 % Converts an erlang time to string
 time_to_string({{Year, Month, Day},{Hour, Minute, Second}}) ->
     io_lib:format("~p-~p-~p_~p:~p:~p", [Year, Month, Day, Hour, Minute, Second]).
