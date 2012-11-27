@@ -39,7 +39,12 @@ with_key(Key, Metrics, Fun) ->
             Fun(Value, Rest)
     end.
 
-% Allow a metric to drill in  
+% Crosstab all metrics against each other
+cross_tab_metrics(all, Metrics) ->
+    [{{Key1, Val1, Key2}, Val2} || {Key1, Val1} <- Metrics, 
+                                   {Key2, Val2} <- Metrics, 
+                                   Key1 =/= Key2];
+
 cross_tab_metrics({Key, all}, Metrics) ->
     BKey = erlang:list_to_binary(Key),
     with_key(BKey, Metrics, fun(Value, Rest) ->
