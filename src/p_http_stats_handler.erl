@@ -57,8 +57,8 @@ lookup_values(Host, Key) ->
     case pulsar_stat:query_host(Host, Key) of
         {error, _Reason} ->
             [];
-        {Timestamp, Dict} ->
-            gb_trees:insert(Timestamp, dict:to_list(Dict), gb_trees:empty())
+        {Timestamp, KVs} ->
+            gb_trees:insert(Timestamp, KVs, gb_trees:empty())
     end.
 
 lookup_values(Host, Key, Start, End) ->
