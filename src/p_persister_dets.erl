@@ -302,7 +302,7 @@ search_key(_Server, _Key, [], Acc) ->
     end, gb_trees:empty(), Acc);
 search_key(Server, Key, [Tmsp|Rest], Acc) ->
     % Check the cache first
-    CacheKey = {?MODULE, Tmsp, Key},
+    CacheKey = {?MODULE, Server, Tmsp, Key},
     Results = case simple_cache:lookup(CacheKey) of
         {ok, R} ->
             R;

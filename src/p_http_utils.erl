@@ -178,23 +178,45 @@ apply_group_modifiers(Items, Req) ->
     apply_group_modifiers(Qs, Items, Req2).
 apply_group_modifiers([], Values, _Req) ->
     Values;
+% Filters out all items that are not value
+apply_group_modifiers([{<<"_value">>, Value}|Rest], Items, Req) ->
+    % Split out the values
+    {Values, NotValues} = lists:partition(fun({K, _V}) ->
+        K == <<"_value">>
+    end, Rest),
+
+    % Build a set of all _values
+    Set = lists:foldl(fun({_K, V}, S) ->
+        sets:add_element(V, S)
+    end, sets:from_list([Value]), Values),
+
+    % Filter the items
+    NewItems = gb_trees_foldl(fun({Tmsp, KVs}, Tree) ->
+        NewKVs = lists:filter(fun({K, _V}) ->
+            sets:is_element(K, Set)
+        end, KVs),
+        gb_trees:insert(Tmsp, NewKVs, Tree)
+    end, gb_trees:empty(), Items),
+    apply_group_modifiers(NotValues, NewItems, Req);
+    
 % Aggregates all the values across all timestamps
 apply_group_modifiers([{<<"_aggregate">>, AggType}|Rest], Items, Req) ->
     NewItems = aggregate_stats(AggType, Items),
     apply_group_modifiers(Rest, NewItems, Req);
+
 % Converts all timestamps from absolute time to deltas, in seconds
 apply_group_modifiers([{<<"_timestamp">>, <<"delta">>}|Rest], Values, Req) ->
     Now = calendar:datetime_to_gregorian_seconds(erlang:localtime()),
-    Tree = lists:foldl(fun({Tmsp, KVs}, Tree) ->
-        Key = if
+    Tree = gb_trees_foldl(fun({Tmsp, KVs}, Acc) ->
+       Key = if
             is_tuple(Tmsp) ->
                 Delta = Now - calendar:datetime_to_gregorian_seconds(Tmsp),
                 list_to_binary(integer_to_list(Delta));
             true ->
                 Tmsp
         end,
-        gb_trees:insert(Key, KVs, Tree)
-    end, gb_trees:empty(), gb_trees:to_list(Values)),
+        gb_trees:insert(Key, KVs, Acc)
+    end, gb_trees:empty(), Values),
     apply_group_modifiers(Rest, Tree, Req);
 apply_group_modifiers([_Other|Rest], Values, Req) ->
     apply_group_modifiers(Rest, Values, Req).
@@ -206,7 +228,7 @@ get_agg_key(<<"hour">>, {{Year, Month, Day}, {Hour, _Min, _Sec}}) ->
 get_agg_key(<<"day">>, {{Year, Month, Day}, {_Hour, _Min, _Sec}}) ->
     {{Year, Month, Day}, {0, 0, 0}};
 get_agg_key(<<"all">>, _Date) ->
-    <<"_aggregate">>;
+    <<"all">>;
 get_agg_key(_Unknown, Date) ->
     Date.
 
@@ -247,4 +269,10 @@ ret_json(Response, Req, State) ->
     {ok, Req2} = cowboy_http_req:reply(200, [{'Content-Type', <<"application/json">>}], R, Req),
     {ok, Req2, State}.
 
-
+% foldl function for gb_trees that uses iterators
+gb_trees_foldl(_Fun, Acc, none) ->
+    Acc;
+gb_trees_foldl(Fun, Acc, {Key, Value, Iter}) ->
+    gb_trees_foldl(Fun, Fun({Key, Value}, Acc), gb_trees:next(Iter));
+gb_trees_foldl(Fun, Acc, Tree) ->
+    gb_trees_foldl(Fun, Acc, gb_trees:next(gb_trees:iterator(Tree))).
