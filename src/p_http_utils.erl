@@ -158,11 +158,6 @@ apply_filters([{<<"_limit">>, Amount} | Rest], Values, Req) ->
 % Reverses the list
 apply_filters([{<<"_reverse">>, _Dir} | Rest], Values, Req) ->
     apply_filters(Rest, lists:reverse(Values), Req);
-% Grabs only the provided value
-apply_filters([{<<"_value">>, DKey} | _Rest], Values, _Req) ->
-    lists:filter(fun({Key, _V}) ->
-        Key == DKey
-    end, Values);
 % Minimum value to return
 apply_filters([{<<"_min">>, Amount} | _Rest], Values, _Req) ->
     Num = list_to_integer(binary_to_list(Amount)),
