@@ -58,7 +58,7 @@ get_key(ServerPid, Key) ->
             Results = query_key_in_table(Key, Table),
             {Timestamp, Results};
         {error, not_found} ->
-            {erlang:localtime(), dict:new()}
+            {erlang:localtime(), []}
     end.
 
 get_key(ServerPid, Timestamp, Key) ->
